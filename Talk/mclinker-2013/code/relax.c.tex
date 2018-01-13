@@ -1,0 +1,10 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k}{extern} \PY{k+kt}{int} \PY{n+nf}{bar}\PY{p}{(}\PY{k+kt}{int}\PY{p}{)}\PY{p}{;}
+
+\PY{k+kt}{int} \PY{n+nf}{foo}\PY{p}{(}\PY{k+kt}{int} \PY{n}{num}\PY{p}{)} \PY{p}{\PYZob{}}
+  \PY{k+kt}{int} \PY{n}{t1} \PY{o}{=} \PY{n}{num} \PY{o}{*} \PY{l+m+mi}{17}\PY{p}{;}
+  \PY{k}{if} \PY{p}{(}\PY{n}{t1} \PY{o}{\PYZgt{}} \PY{n}{bar}\PY{p}{(}\PY{n}{num}\PY{p}{)}\PY{p}{)}
+    \PY{k}{return} \PY{n}{t1} \PY{o}{+} \PY{n}{bar}\PY{p}{(}\PY{n}{num}\PY{p}{)}\PY{p}{;}
+  \PY{k}{return} \PY{n}{num} \PY{o}{*} \PY{n}{bar}\PY{p}{(}\PY{n}{num}\PY{p}{)}\PY{p}{;}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

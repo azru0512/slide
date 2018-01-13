@@ -1,0 +1,358 @@
+% Slides for talk on hydrogen fuel cells
+% given in the department on October 27, 2003.
+% 
+% The original slides were in Prosper.  This file contains the
+% translation of the original slides to Beamer.
+% 
+% Rouben Rostamian <rostamian@umbc.edu>
+% August 31, 2004
+
+\documentclass[CJK]{beamer}
+\usetheme{default}
+
+\usepackage{CJKutf8} % for chinese
+\usepackage{hyperref}
+\hypersetup{colorlinks, linkcolor=blue, citecolor=blue,
+    urlcolor=blue,
+    plainpages=flase,
+    pdfcreator=tex,
+    bookmarksopen=true,
+    pdfhighlight=/P,
+%    pdfauthor={Yao Qi <qiyaoltc@gmail.com>},
+%    pdfcreator={cTeX},
+    pdfstartview=FitH,
+    pdfpagemode=UseOutlines,%UseOutlines, %None, FullScreen, UseThumbs
+}
+
+\setbeamertemplate{frametitle}[default][center]
+
+\begin{document}
+\begin{CJK}{UTF8}{bkai}
+
+\title{非關技術}
+\subtitle{淺談如何參與社區開發}
+\author{
+  陳韋任 \\
+  chenwj@iis.sinica.edu.tw
+}
+\institute{
+  Computer Systems Lab, Institute of Information Science, \\
+  Academia Sinica, Taiwan (R.O.C.)
+}
+\date{Nov. 10, 2012}
+
+%----------- titlepage ----------------------------------------------%
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第二页，致谢 里边的都是link吧，但是看不出来，最好用别的颜色或者下划线来标明。
+\begin{frame}
+  \frametitle{致謝}
+
+\begin{itemize}
+  \item \href{http://blog.smartbear.com/software-quality/bid/167051/14-Ways-to-Contribute-to-Open-Source-without-Being-a-Programming-Genius-or-a-Rock-Star}{14 Ways to Contribute to Open Source}
+  \item \href{http://kernelnewbies.org/mailinglistguidelines}{Mailing List Guidelines}
+  \item \href{http://jeff.jones.be/technology/articles/how-to-ask-for-help-on-irc/}{How to ask for help on IRC}
+  \item \href{http://www.catb.org/~esr/faqs/smart-questions.html}{How To Ask Questions The Smart Way}
+  \item \textcolor{red}{與會的各位 :-)}
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Outline}
+
+\begin{itemize}
+  \item Attitude
+  \item English Matters
+  \item Mailing List
+  \item IRC
+  \item Case Study
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Attitude}
+
+\begin{itemize}
+  \item 謙卑但不自卑
+  \item 自信但不自傲
+  \item 學問
+  \item 勇於宣傳
+  \item \textcolor{red}{長期耕耘}
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第5页，语法错误可以理解，但是还是要避免拼写错误。毕竟是有软件可以自动检查的。patch或者邮件里边有拼写错误，不是太好。
+% 最后一句 “别忘了中文是我们的母语”，这个有什么意思吗？是说 “能用中文，还是用中文”？ 还是别的什么意思？
+
+\begin{frame}
+  \frametitle{English Matters}
+
+\begin{itemize}
+  \item 英文是用來溝通的。
+  \item 能清楚表達意思即可，不需害怕拼字或文法錯誤
+  \item 避免拼字或文法錯誤是禮貌!
+  \item 也別忘了中文是我們的母語
+  \item 能說中文的場合，就不必都用英文，怪彆扭 :p
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第6页，一段太长，不容易阅读。可以把这个段分成3部分。介绍，订阅和归类，发送
+
+\begin{frame}
+  \frametitle{What Is Mailing List?}
+
+Mailing List 是郵件列表。你可以訂閱它，寄信至其電郵信箱，
+所有訂閱者都將讀到你的訊息。大家透過這種方式，自由的討論
+各項社群事務。
+
+\medskip
+例如:
+\begin{itemize}
+  \item HelloGcc Mailing List \href{http://www.freelists.org/list/hellogcc}{http://www.freelists.org/list/hellogcc}
+  \item QEMU Mailing List \href{https://lists.gnu.org/mailman/listinfo/qemu-devel}{https://lists.gnu.org/mailman/listinfo/qemu-devel}
+  \item LLVM Mailing List \href{http://lists.cs.uiuc.edu/mailman/listinfo/llvmdev}{http://lists.cs.uiuc.edu/mailman/listinfo/llvmdev}
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Subscribe Mailing List}
+
+開發者請\textcolor{red}{務必}訂閱郵件列表，以便於和其他開發者交換意見; 一般使用者也建議訂閱，以跟蹤社群發展趨勢和各項消息。
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Setup Mailing List Filter}
+
+活躍的郵件列表一天有上百封信件。訂閱郵件列表時，請設定適當過濾條件加以歸類至個別的信件夾，以方便閱讀。
+
+\medskip
+小技巧:
+\href{https://www.google.com/search?q=mailing+list+filter+procmail}{Google: mailing list filter procmail}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Mail The Mailing List!}
+
+建議在發信時加上自己的簽名 (signature)，其中可以列出自己的簡介或是網址，讓其他人有機會認識你。
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{Signature Example}
+
+\begin{verbatim}
+
+  ... Mail Body ...
+
+--
+Wei-Ren Chen (Your Chinese Name Here!)
+Homepage: http://people.cs.nctu.edu.tw/~chenwj
+\end{verbatim}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第7页， “明确主题”， 这个很好，有没有例子，什么是明确的主题，什么是不明确的主题。
+% 这里边最好加一条 “在mail list里边，任何人都没有义务回答你的问题，所以邮件发出去以后，没有回复，这样也是正常的”
+
+\begin{frame}
+  \frametitle{Mailing List General Rules}
+
+\begin{itemize}
+  \item 明確的主題
+  \item 在本文中進一步描述自己的問題，提供必要的資訊
+  \item 表現出自己已試著自己解決問題，展現解決問題的誠意
+  \item 當別人給的解法有效時，記得回復並致謝
+  \item 請用群組回信
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Bad Subject Example}
+
+\begin{itemize}
+  \item Subject:
+  \item Subject: Help me!
+  \item Subject: Hello!
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{What Is A Good One?}
+
+\begin{itemize}
+  \item Subject: Fail to compile LLVM on Gentoo Linux
+  \item Subject: MCJIT vs JIT
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第8页，加上”不要等着只有自己遇到问题的时候才想到mail list，平时也要多帮助别人 （在力所能及的范围内）“
+\begin{frame}
+  \frametitle{Further Suggestion about Mailing List}
+
+\begin{itemize}
+  \item 如果不清楚該郵件列表整體的環境，可以先潛伏觀察一陣
+  \item 但不要當有永遠沉默的一群
+  \item 參與 ML 上的討論
+  \item 分享自己的成果及經驗
+  \item 不要只有在自己遇到問題時才想到 ML，平時在能力範圍之內也可以幫助他人
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Should I Expect Anyone Anser Me?}
+
+\begin{itemize}
+  \item \textcolor{red}{在 ML 裡面，沒有人有義務回答你的問題}
+  \item 因為大家都是志願者，你不是他老闆
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第9页，有些时候，邮件没有回复，可能有别的原因，比如，邮件没有写清楚，或者maintainer休假了，或者大家对你的问题没有什么兴趣。
+\begin{frame}
+  \frametitle{What If Nobody Answer Me on the ML?}
+
+\begin{itemize}
+  \item 問題描述的不清楚，沒有人懂你
+  \item 你的信件引不起大家的注意
+  \item maintainer 休假了
+\end{itemize}
+
+\medskip
+你可以在 IRC 上這樣問:
+
+  Anyone would like to take a look on this thread?
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{What Is IRC?}
+
+\underline{\href{https://addons.mozilla.org/en-US/firefox/addon/chatzilla/}{ChatZilla}} 登入
+IRC 是聊天室。你可以使用 \href{http://www.irssi.org/}{irssi} 或是 Firefox 插件
+\href{https://addons.mozilla.org/en-US/firefox/addon/chatzilla/}{ChatZilla} 登入
+聊天室。其性質較為隨性，你甚至可以在上面和其他人閒話家常。聊天室視窗上方通常會列出注意事項，請多加留意 。
+
+\medskip
+
+例如:
+\begin{itemize}
+  \item hellogcc at freenode
+  \item llvm at oftcnet
+  \item qemu at oftcnet
+\end{itemize}
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{IRC General Rules}
+
+\begin{itemize}
+  \item 只管發問
+  \item 盡可能清楚描述你的問題
+  \item 只問與該頻道相關的問題。若是不知道合適的頻道，也可以詢問他人該在何處發問
+  \item 禮貌和耐心
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Other Communication Media}
+
+\begin{itemize}
+  \item Blog: HelloGcc Blog \href{http://www.hellogcc.org/}{http://www.hellogcc.org/}，\textcolor{red}{長期徵稿}
+  \item Forum
+  \item News Group
+  \item Stackoverflow
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{One More Last Thing}
+
+\centering \textcolor{red}{DO NOT SPAM!}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+% 第14页，首先应该介绍一下maintainer在open source development里边的role是什么。一个maintainer需要做什么。
+% ”提交有质量的代码“，那么什么杨的代码算有质量的？我在这里想说，我们有些时候，会有这样的想法，”maintainer会找出patch里边的错误的“，
+% 所以自己对自己的代码检查并不是那么严格。我建议，如果想做到”提交有质量的代码“，就要严格要求自己，不要依赖maintainer这个保障。
+% 除了”参与讨论“和提交有质量的代码，最好还可以review 别人的代码 （在自己熟悉的领域）。
+
+\begin{frame}
+  \frametitle{Case Study - How To Be A Maintainer?}
+
+Maintainer 主要負責代碼的開發、審閱別人的 patch 、引導社區的方向和修正 bug。
+
+\begin{itemize}
+  \item 逐漸在社群裡建立信任和信用
+  \begin{itemize}
+    \item 時常參與社群的討論
+    \item 提交有質量的代碼
+    \item 在自己熟悉的領域審閱別人的代碼
+    % 不要出现这样的情况，就是自己写了一个新feature，在commit以后，就不管了。这样就丢失了maintain的机会。
+    \item 貢獻一些新的功能或者特性，並且積極改進它們
+    % 每个社区都有自己的规则，这些都是有现有maintainer的喜好决定的，所以要去适应并且熟悉这样的规则
+    % 在开始阶段 （两年以内），不要试图去改变。
+    \item 熟悉社區的規則
+  \end{itemize}
+  \item \href{http://lists.gnu.org/archive/html/qemu-devel/2012-10/msg01361.html}{[Qemu-devel] MIPS DSP for Qemu}
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Case Study - What Else I Can Do?}
+
+除了提交代碼，你還可以這樣做。
+\begin{itemize}
+  \item 修正註解、拼寫錯誤等增進代碼質量的補丁
+  \item 編寫或翻譯文件
+  \item 協助測試。例如: \href{http://www.hellogcc.org/?p=98}{LLVM 3.1 測試經驗談}
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{The End}
+
+\centering{Q \& A}
+
+\end{frame}
+
+\end{CJK}
+\end{document}

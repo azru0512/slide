@@ -1,0 +1,126 @@
+
+
+  目前 QEMU 存取客戶機虛擬位址 (GVA) 時，會先將 GVA -> HVA，再用 mov 指令
+讀取該 HAV 上的資料。
+
+(1) TLB check
+(2) If hit fall through, else jump to TLB miss case (5)
+(3) TLB hit case: Load value from host memory
+(4) Jump to next code (6)
+(5) TLB miss case: call MMU helper
+(6) ... (next code)
+
+IN:
+0x000f1e6b:  mov    (%edi),%dl
+
+OP:
+ ---- 0xf1e6b
+ mov_i32 tmp2,edi
+ qemu_ld8u tmp0,tmp2,$0x0
+ deposit_i32 edx,edx,tmp0,$0x0,$0x8
+
+OUT:
+0x41e27980:  mov    0x1c(%r14),%ebp         // mov_i32 tmp2,edi
+0x41e27984:  mov    %ebp,%esi               // (1) %ebp = guest virtual addr
+0x41e27986:  mov    %ebp,%edi
+0x41e27988:  shr    $0x7,%esi
+0x41e2798b:  and    $0xfffff000,%edi        // %edi = guest page frame
+0x41e27991:  and    $0x1fe0,%esi            // %esi = [19..12] of guest virtual addr
+0x41e27997:  lea    0x378(%r14,%rsi,1),%rsi // use %esi to index tlb_table, get CPUEntry addr 
+0x41e2799f:  cmp    (%rsi),%edi             // same page frame with guest virtual addr?
+0x41e279a1:  mov    %ebp,%edi               // %edi = guest virtual addr, since latter we will store host virtual addr into %ebp
+0x41e279a3:  jne    0x41e279ae              // (2)   ----------   
+0x41e279a5:  add    0x10(%rsi),%rdi         // (3)             | %rdi = host virtual addr
+0x41e279a9:  movzbl (%rdi),%ebp             // (a)             |    
+0x41e279ac:  jmp    0x41e279b8              // (4)      -------|------
+0x41e279ae:  xor    %esi,%esi               // (5)   <---------       |
+0x41e279b0:  callq  0x63a6c1                //                        |
+0x41e279b5:  movzbl %al,%ebp                                          |
+0x41e279b8:  mov    0x8(%r14),%ebx          // (6)      <-------------
+0x41e279bc:  mov    %ebp,%ecx
+0x41e279be:  mov    %cl,%bl
+
+  - tcg_out_tlb_load (tcg/i386/tcg-target.c)
+
+static inline void tcg_out_tlb_load(TCGContext *s, int addrlo_idx,
+                                    int mem_index, int s_bits,
+                                    const TCGArg *args,
+                                    uint8_t **label_ptr, int which)
+{
+
+    tcg_out_mov(s, type, r1, addrlo); // mov    %ebp,%esi
+    tcg_out_mov(s, type, r0, addrlo); // mov    %ebp,%edi
+
+    // shr    $0x7,%esi
+    tcg_out_shifti(s, SHIFT_SHR + rexw, r1,
+                   TARGET_PAGE_BITS - CPU_TLB_ENTRY_BITS);
+
+    // and    $0xfffff000,%edi
+    tgen_arithi(s, ARITH_AND + rexw, r0,
+                TARGET_PAGE_MASK | ((1 << s_bits) - 1), 0);
+
+    // and    $0x1fe0,%esi
+    tgen_arithi(s, ARITH_AND + rexw, r1,
+                (CPU_TLB_SIZE - 1) << CPU_TLB_ENTRY_BITS, 0);
+
+    // lea    0x378(%r14,%rsi,1),%rsi
+    tcg_out_modrm_sib_offset(s, OPC_LEA + P_REXW, r1, TCG_AREG0, r1, 0,
+                             offsetof(CPUArchState, tlb_table[mem_index][0])
+                             + which);
+
+    /* cmp 0(r1), r0 */
+    tcg_out_modrm_offset(s, OPC_CMP_GvEv + rexw, r0, r1, 0); // cmp (%rsi),%edi
+
+    tcg_out_mov(s, type, r0, addrlo); // mov    %ebp,%edi
+
+    // jne    0x41e279ae
+    /* jne label1 */
+    tcg_out8(s, OPC_JCC_short + JCC_JNE);
+    label_ptr[0] = s->code_ptr; // 留待 tcg_out_qemu_ld 改寫
+    s->code_ptr++;
+
+    /* TLB Hit.  */
+
+    // add    0x10(%rsi),%rdi
+    /* add addend(r1), r0 */
+    tcg_out_modrm_offset(s, OPC_ADD_GvEv + P_REXW, r0, r1,
+                         offsetof(CPUTLBEntry, addend) - which);
+}
+
+  - tcg_out_qemu_ld (tcg/i386/tcg-target.c)
+
+static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args,
+                            int opc)
+{
+
+    tcg_out_tlb_load(s, addrlo_idx, mem_index, s_bits, args,
+                     label_ptr, offsetof(CPUTLBEntry, addr_read));
+
+    // movzbl (%rdi),%ebp
+    /* TLB Hit.  */
+    tcg_out_qemu_ld_direct(s, data_reg, data_reg2,
+                           tcg_target_call_iarg_regs[0], 0, opc); - (a)
+
+    // jmp    0x41e279b8
+    /* jmp label2 */
+    tcg_out8(s, OPC_JMP_short);
+    label_ptr[2] = s->code_ptr;
+    s->code_ptr++;
+
+    /* TLB Miss.  */
+
+    /* label1: */
+    *label_ptr[0] = s->code_ptr - label_ptr[0] - 1;
+
+    // http://lists.gnu.org/archive/html/qemu-devel/2012-07/msg00578.html
+    /* XXX: move that code at the end of the TB */
+
+    // callq  0x63a6c1
+    tcg_out_calli(s, (tcg_target_long)qemu_ld_helpers[s_bits]);
+
+    /* movzbl %al,%ebp */
+
+    /* label2: */
+    *label_ptr[2] = s->code_ptr - label_ptr[2] - 1;
+
+}

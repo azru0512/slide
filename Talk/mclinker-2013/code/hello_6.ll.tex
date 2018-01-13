@@ -1,0 +1,13 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c}{; ModuleID = \PYZsq{}top\PYZsq{}}
+
+\PY{n+nv+vg}{@0} \PY{p}{=} \PY{k}{private} \PY{err}{u}\PY{err}{n}\PY{err}{n}\PY{err}{a}\PY{err}{m}\PY{err}{e}\PY{err}{d}\PY{err}{\PYZus{}}\PY{err}{a}\PY{err}{d}\PY{err}{d}\PY{err}{r} \PY{k}{constant} \PY{p}{[}\PY{l+m}{14} \PY{k}{x} \PY{k}{i8}\PY{p}{]} \PY{k}{c}\PY{l+s}{\PYZdq{}hello world!\PYZbs{}0A\PYZbs{}00\PYZdq{}}
+
+\PY{k}{define} \PY{k+kt}{void} \PY{n+nv+vg}{@main}\PY{p}{(}\PY{p}{)} \PY{p}{\PYZob{}}
+\PY{n+nl}{entrypoint:}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}0} \PY{p}{=} \PY{k}{call} \PY{k}{i32} \PY{n+nv+vg}{@puts}\PY{p}{(}\PY{k}{i8}\PY{p}{*} \PY{k}{getelementptr} \PY{k}{inbounds} \PY{p}{(}\PY{p}{[}\PY{l+m}{14} \PY{k}{x} \PY{k}{i8}\PY{p}{]}\PY{p}{*} \PY{n+nv+vg}{@0}\PY{p}{,} \PY{k}{i32} \PY{l+m}{0}\PY{p}{,} \PY{k}{i32} \PY{l+m}{0}\PY{p}{)}\PY{p}{)}
+  \PY{k}{ret} \PY{k+kt}{void}
+\PY{p}{\PYZcb{}}
+
+\PY{k}{declare} \PY{k}{i32} \PY{n+nv+vg}{@puts}\PY{p}{(}\PY{k}{i8}\PY{p}{*}\PY{p}{)}
+\end{Verbatim}

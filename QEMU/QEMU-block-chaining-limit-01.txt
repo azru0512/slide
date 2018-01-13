@@ -1,0 +1,74 @@
+                 Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  QEMU 在做 block chaining 時，在兩個地方有所限制。
+
+  - gen_goto_tb (target-i386/translate.c) 要求 next_tb 和 tb 同屬一個 guest page。
+    不允許做跨 guest page 的 block chaining。
+
+static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
+{
+    if ((pc & TARGET_PAGE_MASK) == (tb->pc & TARGET_PAGE_MASK) ||       - (a)
+        (pc & TARGET_PAGE_MASK) == ((s->pc - 1) & TARGET_PAGE_MASK))  { - (b)
+        tcg_gen_goto_tb(tb_num);
+        gen_jmp_im(eip);
+        tcg_gen_exit_tb((tcg_target_long)tb + tb_num);
+    } else {
+      ... 略 ...
+    }
+}
+
+(a)                                (b)
+   tb->pc -->  ________               tb->pc -->  ________
+              |        |                         |        | guest page A
+              |        |                      ---------------------------
+              |        |                         |        |
+              |________|               s->pc --> |________|
+
+
+       pc -->  ________                           ________
+              |        |                         |        |
+              |        |                  pc --> |        |
+              |        |                         |        |
+              |________|                         |________|
+
+   guest page A                       guest page B
+  -------------------------          ------------------------------------
+
+  - cpu_exec (cpou-exec.c) 不准 next_tb 跳至跨 guest page 的 tb。
+
+int cpu_exec(CPUArchState *env)
+{
+    for(;;) {
+
+            for(;;) {
+
+                if (next_tb != 0 && tb->page_addr[1] == -1) {
+                    tb_add_jump((TranslationBlock *)(next_tb & ~3), next_tb & 3, tb);
+                }
+
+            }
+    }
+}
+
+              ________ 
+             |        | next_tb
+             |        |
+             |        |
+             |________|
+  
+                 |
+                 v
+              ________
+  guest      |        | tb
+  page A     |        |  
+ --------------------------
+  guest      |        |
+  page B     |________|
+
+
+  總結:
+
+    1. 不允許做跨 guest page 的 block chaining。
+
+    2. 不准 next_tb 跳至跨 guest page 的 tb。

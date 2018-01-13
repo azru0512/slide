@@ -1,0 +1,627 @@
+% Slides for talk on hydrogen fuel cells
+% given in the department on October 27, 2003.
+% 
+% The original slides were in Prosper.  This file contains the
+% translation of the original slides to Beamer.
+% 
+% Rouben Rostamian <rostamian@umbc.edu>
+% August 31, 2004
+
+\documentclass[CJK]{beamer}
+%\usepackage{keynote-gradient} % Apple keynote theme
+
+\usepackage{CJKutf8}  % for chinese
+\usepackage{hyperref} % for url
+\usepackage{pdfpages}
+\hypersetup{colorlinks, linkcolor=blue, citecolor=blue,
+    urlcolor=blue,
+    plainpages=flase,
+    pdfcreator=tex,
+    bookmarksopen=true,
+    pdfhighlight=/P,
+    pdfstartview=FitH,
+    pdfpagemode=UseOutlines,%UseOutlines, %None, FullScreen, UseThumbs
+    pdfnewwindow % open pdf on another tab
+}
+
+\setbeamertemplate{frametitle}[default][center]
+
+% beamer footnote
+\usepackage[absolute,overlay]{textpos}
+\newenvironment{reference}[2]{%
+  \begin{textblock*}{\textwidth}(#1,#2)
+      \footnotesize\it\bgroup\color{red!50!black}}{\egroup\end{textblock*}}
+
+\include{pygments/bash}
+\include{pygments/c}
+\include{pygments/cpp}
+\include{pygments/llvm}
+
+\begin{document}
+\begin{CJK}{UTF8}{bkai}
+
+\title{Part II: LLVM Intermediate Representation}
+\author{
+  陳韋任 (Chen Wei-Ren)\\
+  chenwj@iis.sinica.edu.tw
+}
+\institute{
+  Computer Systems Lab, Institute of Information Science, \\
+  Academia Sinica, Taiwan (R.O.C.)
+}
+\date{April 10, 2013}
+
+%----------- titlepage ----------------------------------------------%
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Outline}
+
+\begin{itemize}
+  \item LLVM IR and IR Builder
+  \item From LLVM IR to Machine Code
+  \item Machine Code Layer
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{C Source Code}
+
+\input{code/fib.c.tex}
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nv}{\PYZdl{} }clang \PYZhy{}emit\PYZhy{}llvm \PYZhy{}O0 \PYZhy{}S fib.c \PYZhy{}o fib.ll
+\end{Verbatim}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=10]
+  \frametitle{C \ensuremath{\rightarrow} LLVM IR}
+
+\input{code/fib.simply.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{LLVM IR 1/2}
+
+LLVM defines its own IR to represent code in the compiler. LLVM IR has
+following characteristics:
+\begin{itemize}
+  \item SSA form: Every definition creates a new variable.
+  \item Infinite virtual registers
+  \item Phi node: Determine the value of the variable comes from which
+  control flow.
+\end{itemize}
+
+  \vspace\baselineskip
+
+LLVM IR has three different forms:
+\begin{itemize}
+  \item in-memory compiler IR
+  \item on-disk bitcode representation (*.bc)
+  \item on-disk human readable assembly (*.ll)
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+%\begin{frame}
+%  \frametitle{LLVM IR 2/3}
+%
+%\input{code/ssa.c.tex}
+%
+%\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{LLVM IR 2/2}
+
+%\input{code/ssa.ll.tex}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.8]{fig/llvm_ir.png}
+\end{figure}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{IR Builder 1/3}
+
+LLVM IRBuilder is a class template that can be used as a convenient way
+to create LLVM instructions. 
+
+\begin{itemize}
+  \item Module: The top level container of all other LLVM IR. It can contains
+  global variables, functions, etc...
+  \item Function: A function consists of a list of basic blocks and a list of arguments.
+  \item Basic block: A container of instructions that can be executed sequentially.
+  \item LLVMContext: A container of \textit{global} state in LLVM.
+\end{itemize}
+
+%MachineInstr (MI) also has builder, BuildMI, too.
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{IR Builder 2/3}
+
+%\input{code/builder_fib.ll.tex}
+
+\begin{figure}
+  \centering \includegraphics{fig/ir_builder.png}
+\end{figure}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=20]
+  \frametitle{IR Builder 3/3}
+
+\input{code/builder.cc.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+
+  \centering Let's start with a simple HelloWorld!
+
+  \vspace\baselineskip
+
+  \centering We will stick with LLVM 3.2 Release!
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=10]
+  \frametitle{Step 1. Create Module}
+
+  \vspace\baselineskip
+
+\input{code/hello_1.cc.tex}
+
+  \vspace\baselineskip
+
+\input{code/hello_1.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{Step 2. Create Function}
+
+  \vspace\baselineskip
+
+\input{code/hello_2.cc.tex}
+
+  \vspace\baselineskip
+
+\input{code/hello_2.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{Step 3. Create Basic Block}
+
+  \vspace\baselineskip
+
+\input{code/hello_3.cc.tex}
+
+  \vspace\baselineskip
+
+\input{code/hello_3.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{Step 4. Add "hello world" into the Module}
+
+  \vspace\baselineskip
+
+\input{code/hello_4.cc.tex}
+
+  \vspace\baselineskip
+
+\input{code/hello_4.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{Step 5. Declare "puts" method}
+
+  \vspace\baselineskip
+
+\input{code/hello_5.cc.tex}
+
+  \vspace\baselineskip
+
+\input{code/hello_5.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=15]
+  \frametitle{Step 6. Call "puts" with "hello world"}
+
+  \vspace\baselineskip
+
+\input{code/hello_6.cc.tex}
+
+  \vspace\baselineskip
+
+\input{code/hello_6.ll.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Lowering Flow Overview}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.425]{fig/lowering_flow.png}
+\end{figure}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{LLVM \ensuremath{\rightarrow} DAG}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/ir_to_dag.png}
+\end{figure}
+
+  We first translate a sequence of LLVM IR into a SelectionDAG to make
+instruction selection easier. DAG also make optimization efficiently,
+CSE (Common Subexpression Elimination), for example.
+
+  \vspace\baselineskip
+
+  For each use and def in the LLVM IR, an SDNode (SelectionDAG Node) is
+created. The SDNode could be intrinsic SDNode or target defined SDNode.
+
+  \vspace\baselineskip
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}view\PYZhy{}dag\PYZhy{}combine1\PYZhy{}dags fib.ll
+\PY{n+nv}{\PYZdl{} }dot \PYZhy{}Tpng dag.fib.dot \PYZhy{}o dag.fib.png
+\end{Verbatim}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{LLVM \ensuremath{\rightarrow} DAG}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.275]{dot/view-legalize-dags-fib.png}
+\end{figure}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{Legalize}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/legalize.png}
+\end{figure}
+
+  Target machine might not support some of LLVM types or operations, we need to
+\textcolor{red}{legalize} previous DAG.
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}view\PYZhy{}dag\PYZhy{}combine2\PYZhy{}dags fib.ll
+\end{Verbatim}
+ 
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{IR DAG \ensuremath{\rightarrow} Machine DAG}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/dag_to_dag.png}
+\end{figure}
+
+  The instruction selector match IR SDNode into MachineSDNode. MachineSDNode
+represents everything that will be needed to construct a MachineInstr (MI).
+
+  \vspace\baselineskip
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c}{\PYZsh{} displays the DAG before instruction selection}
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}view\PYZhy{}isel\PYZhy{}dags fib.ll
+\PY{c}{\PYZsh{} displays the DAG before instruction scheduling}
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}view\PYZhy{}sched\PYZhy{}dags fib.ll
+\end{Verbatim}
+
+\end{frame}
+
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{Scheduling and Formation}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/dag_to_mi.png}
+\end{figure}
+
+Machine DAG are deconstructed and their instruction are turned into
+list of MachineInstr (MI). The scheduler has to decide in what order
+the instructions (MI) are emitted.
+
+  \vspace\baselineskip
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}print\PYZhy{}machineinstrs fib.ll
+\end{Verbatim}
+
+  \vspace\baselineskip
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{SSA-based Machine Code Optimization}
+
+Ths list of MachineInstr is still in SSA form. We can perform target-specific
+low-level optimization before doing register allocation. For example, LICM
+(Loop Invariant Code Motion).
+
+  \vspace\baselineskip
+
+\begin{itemize}
+  \item addMachineSSAOptimization (lib/CodeGen/Passes.cpp)
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Register Allocation}
+
+All virtual registers are eliminated at this stage. The register allocator
+assigns physical register to each virtual register if possible. After register
+allocation, the list is not SSA form anymore.
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Prologue/Epilogue Code Insertion}
+
+We insert prologue/epilogue code sequence into function beginning/end
+respectively. All abstract stack frame references are turned into memory
+address relative to the stack/frame pointer.
+
+\end{frame}
+
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{What We Have Now?}
+
+  C \ensuremath{\rightarrow} LLVM IR \ensuremath{\rightarrow} IR DAG
+ \ensuremath{\rightarrow} Machine DAG \ensuremath{\rightarrow} MachineInstr (MI)
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Code Emission}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/mi_to_mc.png}
+\end{figure}
+
+This stage lowers MachineInstr (MI) to MCInst (MC).
+
+\begin{itemize}
+  \item MachineInstr (MI): Abstraction of target instruction, consists of opcode and operand only. We have MachineFunction and MachineBasicBlock as containers for MI.
+  \item MCInst (MC): Abstraction of object file. No function, global variable ...etc, but only label, directive and instruction.
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{Machine Code (MC) Layer}
+
+  MC layer works at the level of abstraction of object file.
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}show\PYZhy{}mc\PYZhy{}inst fib.ll
+\PY{n+nv}{\PYZdl{} }llc \PYZhy{}show\PYZhy{}mc\PYZhy{}encoding fib.ll
+\end{Verbatim}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+%\begin{frame}
+%  \frametitle{MC Layer Overview}
+%
+%\begin{figure}
+%  \centering \includegraphics[scale=0.425]{fig/mc_layer_overview.png}
+%\end{figure}
+%
+%\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{MC Layer Flow}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.4]{fig/mc_layer_structure.png}
+\end{figure}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{What Is The Role of MC?}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.8]{fig/mcstreamer_and_mcinst.png}
+\end{figure}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+%\begin{frame}
+%  \frametitle{What Is The Role of MC? 2/2}
+%
+%\begin{itemize}
+%  \item MCStreamer: A C++ abstract base class aims to provide interface for
+%  machine code emission.
+%  \item MCAsmStreamer/MCObjectSteamer: They are implementation of MCStreamer
+%  interface, prepare assembly/object file content ready for output.
+%  \item MCInstPrinter/MCCodeEmitter: Write assembly/object file out.
+%\end{itemize}
+%
+%
+%\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Assembler Relaxation}
+
+Assmbler can adjust the instructions for two purposes:
+
+\begin{itemize}
+  \item Correctness: If the operand of instruction is out of bound, either
+        expand the instruction or replace it by a longer one.
+  \item Optimization: Replace expensive instruction with a cheaper one.
+\end{itemize}
+
+  \vspace\baselineskip
+
+This process is called \textit{relaxation}.
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[fragile]
+  \frametitle{Assembler Relaxation Example 1/4}
+
+\input{code/relax.c.tex}
+
+  \vspace\baselineskip
+
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n+nv}{\PYZdl{} }clang \PYZhy{}S \PYZhy{}O2 relax.c
+\PY{n+nv}{\PYZdl{} }clang \PYZhy{}c relax.s
+\PY{n+nv}{\PYZdl{} }objdump \PYZhy{}d relax.o
+\end{Verbatim}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=20]
+  \frametitle{Assembler Relaxation Example 2/4}
+
+\input{code/relax-before.objdump.tex}
+
+\end{frame}
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=20]
+  \frametitle{Assembler Relaxation Example 3/4}
+
+% after
+
+\input{code/relax-after.s.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}[shrink=20]
+  \frametitle{Assembler Relaxation Example 4/4}
+
+\input{code/relax-after.objdump.tex}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Section and Fragment}
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/section_and_fragment_v1.png}
+\end{figure}
+
+In order to make relaxation process easier, LLVM keeps instructions as
+a linked list of \textit{Fragment} not a byte array.
+
+\begin{figure}
+  \centering \includegraphics[scale=0.3]{fig/section_and_fragment_v2.png}
+\end{figure}
+
+\begin{itemize}
+  \item MCAssembler::layoutSectionOnce (lib/MC/MCAssembler.cpp)
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+%\begin{frame}
+%  \frametitle{Section and Fragment 2/2}
+%
+%\begin{enumerate}
+%  \item Assembly directives and instructions are parsed, encoded and
+%        collected into fragments.
+%  \item Calculate the offsets of each fragments inside the section,
+%        and start relaxation iteratively.
+%  \item Fragments are written into a linear buffer for object file
+%        emission.
+%\end{enumerate}
+%
+%\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{Reference}
+
+\begin{itemize}
+  \item \href{http://www.hellogcc.org/download/hellogcc-2012.pdf}{LLVM - Another Toolchain Platform}
+  \item \href{http://www.opus.ub.uni-erlangen.de/opus/volltexte/2010/1659/pdf/tricore_llvm.pdf}{Design and Implementation of a TriCore Backend for the LLVM Compiler Framework}
+  \item \href{http://blog.llvm.org/2012/11/life-of-instruction-in-llvm.html}{Life of an instruction in LLVM}
+  \item \href{http://eli.thegreenplace.net/2013/01/03/assembler-relaxation/}{Assembler relaxation}
+  \item \href{http://mclinker.googlecode.com/files/instruction_relaxing.pdf}{Instruction Relaxation}
+  \item \href{http://blog.llvm.org/2010/04/intro-to-llvm-mc-project.html}{Intro to the LLVM MC Project}
+  \item \href{http://www.llvm.org/devmtg/2010-11/Dunbar-MC.pdf}{The LLVM Assembler \& Machine Code Infrastructure}
+  \item \href{http://www.embecosm.com/appnotes/ean10/ean10-howto-llvmas-1.0.html}{Howto: Implementing LLVM Integrated Assembler}
+  \item \href{http://www.aosabook.org/en/llvm.html}{The Architecture of Open Source Applications - Chapter LLVM}
+  \item \href{http://llvm.org/docs/CodeGenerator.html}{The LLVM Target-Independent Code Generator}
+\end{itemize}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+  \frametitle{The End}
+
+\centering{Q \& A}
+
+\end{frame}
+
+%----------- slide --------------------------------------------------%
+\begin{frame}
+
+\centering{You can download the \href{http://people.cs.nctu.edu.tw/~chenwj/slide/Talk/mclinker-2013/talk.txt}{manuscript}
+and related material from \href{http://people.cs.nctu.edu.tw/~chenwj/slide/Talk/mclinker-2013/}{here}.}
+
+\end{frame}
+
+\end{CJK}
+\end{document}

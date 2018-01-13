@@ -1,0 +1,339 @@
+
+
+Good morning everyone, my name is chenwj. I am going to introduce
+LLVM intermediate representation and how LLVM IR is transformed to
+target machine code. By understanging LLVM, it can help you
+understand MCLinker more.
+
+This is today's outline. First, I will introduce LLVM IR and show
+you how to use IRBuilder to produce LLVM IR. After that, I will show
+you how does LLVM transform LLVM IR to target machine code. Finally,
+I will give you a brief introduce on LLVM MC layer. In the history
+of MCLinker, MCLinker try to reuse LLVM MC layer at the beginning.
+But eventually, MCLinker defines it own IR. So understanding LLVM
+MC layer can help you get more understanding on MCLinker.
+
+Let me give you a glass at LLVM IR. This is a fibonacci function written
+in C. How the function works does not matter. The important part
+is you can use this commanline to get LLVM IR. clang is comiler frontend
+for LLVM. By giving this (-emit-llvm) to clang, it transform the C code
+into a list of LLVM IR.
+
+After clang parse the source code, it produce the corresponding LLVM IR.
+You can see the abstraction of LLVM IR is a little bit higher than assembly
+language. For example, the operand of the instruction has a type. Also the
+operand is a virtual register, not target physical register. Therefore,
+the abstraction of LLVM IR is between C and assembly language.
+
+In order to decouple the frontend and backend, compiler usually defines
+it own IR. LLVM, of course does like that. LLVM IR is well-formed and
+appropriate for modern compiler optimizations. LLVM IR has the following
+features. First, LLVM IR is in SSA form. SSA form means every assignment'
+creates a new variable. Second, LLVM assumes there is infinite virtual
+registers and leave register allocator to assign target physical register
+to each virtual register. Third, LLVM has phi node. Assume now you have
+two control flow, one is truth path and the other is false path. At the
+joint point of truth and false path, there is a phi node. The phi node
+deteremins the result of the local variable. The result of the local
+variable can come from the truth path, or it can come from the false
+path. LLVM IR is also well-defined and reliable. LLVM IR has three
+different forms. When you are compiling a source code, the frontend transform
+the source code to the "in-memory" compiler IR, then does a lot of
+transformation and optimization. In the mean time, you can dump the im-memory
+IR onto the disk, either in the bitcode format or human readable assembly
+format. And the previous example is in human readable format.
+
+Now, let's take a concrete example to see what LLVM IR looks like. When
+you learn a new language, the first thing you should know is how to define
+a identifier in that language. In LLVM, the string with "%" prefix is a local
+identifier. Here you can see we have %1, %2 and %3 as the local identifiers.
+The string with "@ (mouse)" prefix is a global identifier. Here you can see
+we have a global identifier for function bar. As we mentioned before, LLVM
+has following features, SSA form, infinite virtual registers and phi node.
+Here you can see, we define a local variable %5 to remember the return value
+of function foo. Everywhen we have a assignment, we create a new varible
+(%6) to remember the result. This is what SSA means. When we need a varible,
+we create a new one. We do not use old variable. So, here you can see we
+define %8, %9, %10 and so on. In the code below, there is a phi node. You
+can see path 4 and path 7 jump to here. The phi node determines the final
+result of %10. The final result of %10 might come from %6 on path 4, or %8
+on path 7.
+
+Now we are going to talk about how to build LLVM IR from scratch. LLVM already
+provide a class template called IRBuilder to make such task easier. LLVM
+IRBuilder comes with bells and whistle. It's a well-designed and easy-to-use
+class. Before you use IRBuilder, you must know the following important
+components. First, LLVM module is a compilation unit as you see
+in C program. LLVM module is the top-level container of all LLVM IR stuff,
+includes global variables, functions and so on. Inside the module, there
+could be serveral LLVM functuion objects. LLVM function object is made of
+a list of basic blocks and a list of arguments. Then in the basic block,
+there are LLVM instructions that can be executed sequentially. We already talk
+about global variables, functions and basic block. What we did not mention is
+the type system. Take C as an example. When you define three variables, and they
+are all 32-bit integer. Since different platforms define different length for
+integer type, we must have a place to remember that information. And LLVMContext
+is such the place. So in short, LLVMContext is a container of type you used
+in a LLVM module.
+
+Let's take our fibonacci example again. You can see the content of whole program
+is inside the LLVM modoule. And (here to there) is the LLVM function for our
+fibonacci function. In the LLVM function, there are several basic blocks. Then
+in the basic block, there is a seqence of LLVM instructions. In this example,
+we use 1-bit and 32-bit integer. Those type information are remembered in
+LLVMContext.
+
+Let's see a simple program to show you how to use the IRBuilder.
+Before you create a LLVM module, you must create a LLVMContext first. Then you
+pass the module's name and the LLVMContext to the LLVM module ccnstructor to
+create a module on the heap. This function (Type::getInt32Ty) lookups LLVMContext
+to see if there is a 32-bit type. If it find one, it returns the type immediately, otherwise
+it creates a new one in the LLVMContext. The module provides a getOrInsert member
+function to lookup if there is a function with this name in the module. If it find one,
+it returns the pointer to the function. Otherwise, it insert a new function in the module.
+Now we have a empty function, we need to create basic block in the function. There
+are three arguements in the Create function, the second one does not matter. The third
+one specific what function this basic block belong to. Everywhen we create a basic block,
+we creat a label as well. Label is a kind of type. So we give the Create function a LLVMContext
+to remember the type. Then we create a IRBuilder, and give it a basic block. That means
+we want to start insert LLVM instruction at that basic block. It's time to create LLVM instruction.
+First, we prepare the operand for the LLVM instruction we want to create. The we use IRBuiler
+to create the LLVM instruction. Okay, now you are done! 
+
+Let's start with a simple HelloWorld! In this example, we will stick to LLVM
+3.2 release.
+
+The first step is create a LLVM module. Before that, you must create a LLVMContext.
+Since this is a simple example, we just get a global LLVMContext. Then we pass
+the module's name and the LLVMContext to module's constructor to create a LLVM
+module on the heap. Then we create a IRBuilder object with the LLVMContext.
+The way how we create the IRBuilder is different from previous example. We do not
+set insertion point at any basic block yet. As we mentioned before, you can dump
+the in-memory IR. This is a simplest LLVM module. You can see the module's name
+is the same as the arguement we gave to the Create function.
+
+Now we have a LLVM module. In this step, we want to create a LLVM function in
+the module. Before you create a LLVM function, you must define the function's
+prototype. LLVM seperates the type system and the variable system. LLVM puts
+the type system in LLVMContext, and puts the variable system in LLVM module.
+This statement creates a function prototype. The first arguement tells us the
+return type is 32-bit integer and the last arguement tells us this function
+does not have any arguement. This statement creates a LLVM function in the
+module. The first arguement is the function prototype. The second arguement
+is the function linkage. ExternalLinkage means out side module can see this
+function. The third arguement is the function name. The last arguement tells
+us this function belong this module. Now, let's dump the in-memory IR. Since
+this function does not have any basic block. You can see we define an empty
+function whose return type is 32-bit integer, without arguement. The function
+name is the same as the arguement we gave to the Create function.
+
+Now we have a LLVM function. This step creates a basic block in the function.
+This statement creates a basic block in the function (mainFunc) we just created.
+As we mentioned before, everywhen we create a basic block, we create a lable
+(entryblock) as well. Lable is a kind of type. We must put the LLVMContext
+to remember that type. This statement tells the IRBuilder, we want to start
+insert LLVM instruction at this basic block. Now, let's dump the in-memory IR.
+This is a simplest function body. This function only has one basic block.
+The block's name is the same as the arguement we gave to the Create function.
+
+The purpose of our example is printing "hello world" string on the screen.
+So we must have a "hello world" string in the module. This statement tells
+the IRBuilder to create a global string in our module. Now, let's dump the
+in-memory IR. You can see we define an array whose element is 8-bit integer.
+This array has 14 elements. We use unnamed_addr to get the starting address
+of this array.
+
+Now we have the "hello world" string. We have to use "puts" function to
+print "hello world" on the screen. Before we create the "puts" function,
+we must define it's prototype first. This statement creates the function
+prototype. The first arguement tells us the return type is 32-bit integer,
+and the second arguement tells us the type of function arguement is a 8-bit
+integer pointer. The last arguement tells us this function does not have
+variant arguement. We have introduced this function before. This statement
+inserts the "puts" method in our module. Let's come back to here. One import
+feature of LLVM is shim layer. ArrayRef is part of the shim layer. ArrayRef
+avoids this function (get) from modifying the vector (putsArgs) within ArrayRef.
+Let's dump the in-memory IR. We can see now we have the "puts" method in our
+module.
+
+Now we have the "hello world" string and the "puts" method. Now it's time
+to create a call. This statement makes a call to the "puts" method with
+the "hello world" string. After we print out the "hello world", it's time
+to terminate the program. The simplest way to terminate a program is return
+a void. Now you have a list of LLVM IR. It's time to let LLVM backend to
+generate the target machine code for you.
+
+This is the overview of LLVM lowering flow. No matter how the LLVM IR is
+produced, either by a compiler frontend or hand-crafted by yourself. The
+job of LLVM backend is lowering the LLVM IR all the way to the target machine
+code, either in assembly or object file. During the lowering process, there
+are many LLVM internal representation.
+
+Lowering is the process to add or remove information in the IR. At first,
+you have a list of LLVM IR. LLVM then does DAG lowering. DAG lowering transform
+those LLVM IR to DAG. DAG is the short name of Directed Acyclic Graph. The graph
+has SDNode. SDNode is similar to GCC RTL. The DAG of SDNode has target depent
+information to help instruction seletor. Then instruction selector do pattern
+matching to transform the DAG into a list of MachineInstr. LLVM do
+instruction scheduling and register allocation at this stage. Then LLVM
+does MC lowering to transform MachineInstr into a list of MCInst. MCInst
+is even simpler than MachineInstr. MCInst is appropriate for code emission.
+Depend on your purpose, you can go through the Assembly Printer to get a
+assembly file, or you can go through the Object File Writer to get a object
+file.
+
+Now let's illustrate more detail about this graph.
+
+First, the LLVM backend transform a list of LLVM IR into DAG. DAG is also
+called SelectionDAG in LLVM. DAG not only makes instruction selection
+easier, but also make optimization efficiently. For example, You can do 
+common subexpression elimination efficiently in DAG form. The SelectionDAG
+is a kind of use-def chain. LLVM creates a SDNode for each use and def in
+LLVM IR. In this stage, LLVM adds target dependent information in the IR.
+Therefore, the SDNode could be intrinsic SDNode or target defined one.
+You can see the DAG of our fibonacci example by using the following
+commandlines.
+
+Here is an examle of SelectionDAG. Those SDNode are connected by SDValue.
+SDValue represents the control or data depency between those SDNode.
+
+You should note that not every target machine support all LLVM types and
+operations. For example, the target machine may be able to deal with
+32-bit integer only. But LLVM defines 8-bit integer type. What should
+we do? The process of turning some LLVM types and operations to target
+supported one is called legalization. So in previous example, the legalization
+extends the 8-bit integer to 32-bit integer. You can see the DAG after
+legalization of our fibonacci example by using this commandline.
+
+After legalization, we are ready to select target instruction. The input
+and output of this stage are both DAG, but the content of DAG is different.
+The LLVM instruction selector do pattern matching, then turns each SDNode
+into MachineSDNode. MachineSDNode has enough information to construct
+another LLVM internal representation, named MachineInstr. You can use
+the command lines belowe to see the DAG before and after instruction
+selection.
+
+Okay, the DAG we get after instruction selection is called MachineDAG.
+But we can not output the DAG right? What we want is a list of target
+instruction. In this stage, we decompose MachineDAG into a list of
+LLVM MachineInstr. In the mean time, the scheduler can decide in which
+order to emit those MachineInstr.
+
+The list of MachineInstr is still in SSA from. As we mentioned before,
+SSA from is appropriate for modern compiler optimization. We can apply
+SSA based, target-specific, low-level optimization on those MachineInstr
+before register allocation. For example, we can do loop invariant code
+motion at this stage. If you are interested in LLVM does what optimization
+at this stage, you can see the C++ function below.
+
+So far, these MachineInstr still use virtual registers as their operands.
+Here comes the register allocation. The register allocator assigns target
+physical register to each virtual register. After this stage, all virtual
+registers are removed, and the list of MachineInstr is not SSA form anymore.
+
+After register allocation, we know a function uses how much memory space.
+So in this stage, we can insert the prologue and epilogue into the function
+beginning and end. LLVM turns all virtual stack frame reference into
+memory address relative to target stack or frame register.
+
+Okay, what we have now? Let's review the LLVM lowering process. From the
+beginning, LLVM compilers transform the C source code into LLVM IR. Then
+LLVM backend tranforms LLVM IR into IR DAG for instruction selection.
+After instruction selection, LLVM transforms the IR DAG into MachineDAG.
+Then LLVM decomposes MachineDAG into a list of MachineInstr. In this stage,
+LLVM does instruction scheduling and register allocation on those MachineInstr.
+So what the next? It's time for code emission!
+
+In LLVM, it creates a abstraction layer for object file, named Machine Code
+Layer. MC layer defines it's own IR, named MCInst. The terms used in LLVM
+is quit confusing. MachineInstr and MCInst have the simliar names, but they
+are different things. MachineInstr is the abstraction layer of target
+instruction. MachineInstrs are made of opcodes and operands. We have
+MachineFunction and MachineBasicBlock as containers of MachineInstr.
+On the other hand, because MC layer is designed for object file emission.
+MCInst is even simpler than MachineInstr. There is no functions and basic
+blocks, but only lables, directives and target instructions. So in this
+stage, LLVM transforms MachineInstr into MCinst to make code emission
+easier.
+
+Now we already talk about the overall LLVM lowering process. Let's focus
+on the MC layer. The first command line tells `llc` to transform our
+fibonacci example into MCInst. Then we can see those MCInst on the screen.
+The second command line tells `llc` to transform our fibonacci example
+into binary code. We can see those binary code on the screen, too.
+
+Here is the overview of MC layer flow. In the past, LLVM uses AsmPrinter
+to transform MachineInstr into object file directly. But LLVM found that's
+a bad design. Because LLVM JIT can not handle inline assembly. Therefore,
+LLVM design the MC layer. Currently, LLVM uses AsmPrinter and MCInstLower
+to transform MachineInstr into MCInst. Then depend on your purpose, you
+can use MCAsmStreamer to prepare the content of assembly file. Then you
+can use MCInstPrinter to write out the assembly content. Or you can use
+MCObjectStreamer to prepare the content of object file. And let MCCodeEmitter
+to write out the object file content. There are two interesting parts.
+If you want to assemble a assembly file, you can use AsmParser to parse
+the assembly file. AsmParser will transfrom assembly into MCInst. Then you
+can use MCObjectStreamer and MCCodeEmitter to get the corresponding object
+file. Or, if you want to do `objdump`, you can use Disassembler to decode
+the object file. Disassembler will transfrom those binary code into MCInst.
+Then you can use MCAsmStreamer and MCInstPrinter to get the corresponding
+assembly.
+
+So, what is the role of MC layer. MC layer has two majot components, one is
+MCStreamer and the other one is MCInst. No matter you want to do assemble, 
+compile, JIT compile or disassembly. MC layer provides a uniform infastructure.
+For example, if you want to do compliation, you can use LLVM compilers to
+transform C source code into MCInst. LLVM then use Assembly Printer to
+print out the final assembly. 
+
+Not only compiler can do optimization on the program, but also assembler
+and linker do optimization. Here is one example, named assembler relaxation.
+The job of assembler is to encode the assembly into binary. During the process,
+assemblers can adjust the instruction encoding for two purposes. One is for
+correctness. If the operand of instruction is out of bound, then assemblers
+can expand the instruction, or replace it by a longer one. The other purpose
+is for optimization. Assemblers can replace expensive instruction by a cheaper
+one. This process is to relax instrcution.
+
+Okay, now let me use a simple example to show you what assembler relaxation is.
+
+How the function foo works does not matter. The important part is following
+commandlines. You can use clang to get the corresponding assembly and object
+file. Then you can use objdump to disassemble the object file. This is the
+code snippet of our function foo. Let's focus on this jump instrcution. The
+opcode for this jump instrcution is 0x7e. That means "jump if less or equal",
+and the jump target is within 8-bit PC relative offset (from here to there).
+
+Here comes the problem, what if the 8-bit PC relative offset is not enough
+to reach the jump target? To see this in action, let's continue with our
+assembly example. Here, we add a lots NOP between this jump instruction and
+the jump target. In the end, the jump target is out of the 8-bit PC relative
+offset range. Okay, let's see how assembler solve this problem. We assemble
+this assembly file first. Then we use objdump to see what's going on. Let's
+focus on this jump instruction again. You can see assembler has changed the
+jump instruction encoding. This jump instruction now use "0x0f 0x8e" as opcode.
+It has a 32-bit PC relative offset. This offset is large enough so that this
+jump instruction can reach the jump target.
+
+Okay, let's go back to LLVM. LLVM has an integrated assembler thanks to MC
+layer. Let's see how assembler relaxation is done in LLVM.
+
+As we know, the assembly and object file are made of several sections. The
+naive implementation of code emission is treating those sections as byte
+array. For example, this is a byte array for one section. We need to relax
+one instruction in this red block. What should we do? We need to reallocate
+a byte array, then write the new content in it. You might think that's not
+a big deal. But the real problem is, relax a instruction can trigger a chain
+of reaction. That means you need to relax a lot of instruction, and you need
+to reallocate the byte array again, again, and again. This is time and memory
+consuming. So how LLVM deal with this problem? LLVM treates section as a linked
+list of fragment, not a byte array. So in this example, LLVM partition this
+section into three fragments and make them into a linked list. Now you see,
+LLVM only has to reallocate a new fragment and write new content into it,
+then change the links between those fragments. This design makes relaxation
+process easier, because the cost of linked list insertion and deletion is
+lower than byte array insertion and deletion.
+
+After the tea break, Luba will show you how MCLinker powerful is. Because
+of the excellent design of MCLinker, you can do a lot of amazing optimization
+in the linking time.

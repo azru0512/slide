@@ -1,0 +1,70 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  o cpu_exec_init_all (exec.c)
+
+void cpu_exec_init_all(void)
+{
+    // 初始化內存。
+    memory_map_init();
+    // 初始化 IO
+    io_mem_init();
+}
+
+    o memory_map_init (exec.c)
+
+static MemoryRegion *system_memory;
+static MemoryRegion *system_io;
+
+static void memory_map_init(void)
+{
+    system_memory = g_malloc(sizeof(*system_memory));
+    memory_region_init(system_memory, "system", INT64_MAX);
+    // 將 address_space_memory (memory.c) 的根設為 system_memory。
+    set_system_memory_map(system_memory);
+
+    system_io = g_malloc(sizeof(*system_io));
+    memory_region_init(system_io, "io", 65536);
+    // 將 address_space_io (memory.c) 的根設為 system_io。
+    set_system_io_map(system_io);
+
+    memory_listener_register(&core_memory_listener, system_memory);
+    memory_listener_register(&io_memory_listener, system_io);
+}
+
+    o
+
+MemoryRegion io_mem_ram, io_mem_rom, io_mem_unassigned, io_mem_notdirty;
+
+static void io_mem_init(void)
+{
+    memory_region_init_io(&io_mem_ram, &error_mem_ops, NULL, "ram", UINT64_MAX);
+    memory_region_init_io(&io_mem_rom, &rom_mem_ops, NULL, "rom", UINT64_MAX);
+    memory_region_init_io(&io_mem_unassigned, &unassigned_mem_ops, NULL,
+                          "unassigned", UINT64_MAX);
+    memory_region_init_io(&io_mem_notdirty, &notdirty_mem_ops, NULL,
+                          "notdirty", UINT64_MAX);
+    memory_region_init_io(&io_mem_subpage_ram, &subpage_ram_ops, NULL,
+                          "subpage-ram", UINT64_MAX);
+    memory_region_init_io(&io_mem_watch, &watch_mem_ops, NULL,
+                          "watch", UINT64_MAX);
+}
+
+

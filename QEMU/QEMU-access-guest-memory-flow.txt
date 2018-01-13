@@ -1,0 +1,57 @@
+
+
+
+                                (2)          Hit
+   Save Dirty State --->  Lookup TLB Cache ------> Access Memory
+         (1)         ^
+                     |           |
+                     |           |
+                     |           |
+                     |           v
+                     |     (3)                Miss
+                     |    Lookup Page Table -------> Raise Guest Exception,
+                     |                                Leave Code Cache
+                     |           |
+                     |           |
+                     |           |
+                     |           v
+                     |
+                      ------ Set TLB Cache   
+
+
+
+                                     qemu_ld/qemu_st (GVA xxx)
+
+                                             |
+                                             v
+                                                      Y
+ env->tlb_table (GVA -> HVA)     -------> TLB Hit?  -----> (HVA yyy) mov yyy %r1
+                                |
+                                |            | N
+                                             v
+                          tlb_set_page
+                                       __{st,ld}{b,w,l,q}_mmu
+                                ^
+                                |            |
+                                |            v
+                                |  Y
+                                 -------- tlb_fill
+                                   (walk guest page table)
+
+                                             | N (guest page fault)
+                                             v
+
+                                      cpu_restore_state
+
+                                             |
+                                             v
+
+                                     raise_exception_err
+
+                                             |
+                                             v
+
+                            go back to cpu_exec to translate/execute
+                                  guest OS page fault handler
+
+  

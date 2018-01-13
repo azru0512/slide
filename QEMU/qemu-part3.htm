@@ -1,0 +1,214 @@
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<base href="http://vm-kernel.org/blog/2009/07/15/qemu-internal-part-3-memory-watchpoint/"><div style="background:#fff;border:1px solid #999;margin:-1px -1px 0;padding:0;"><div style="background:#ddd;border:1px solid #999;color:#000;font:13px arial,sans-serif;font-weight:normal;margin:12px;padding:8px;text-align:left">這是 Google 對 <a href="http://vm-kernel.org/blog/2009/07/15/qemu-internal-part-3-memory-watchpoint/" style="text-decoration:underline;color:#00c">http://vm-kernel.org/blog/2009/07/15/qemu-internal-part-3-memory-watchpoint/</a> 的快取。 這是該網頁於 2011年7月7日 12:30:26 GMT 顯示時的快照。 在此期間，<a href="http://vm-kernel.org/blog/2009/07/15/qemu-internal-part-3-memory-watchpoint/" style="text-decoration:underline;color:#00c">目前網頁</a>可能已經變更。 <a href="http://www.google.com/intl/zh-TW/help/features_list.html#cached" style="text-decoration:underline;color:#00c">瞭解更多資訊</a><br><br><div style="float:right"><a href="http://webcache.googleusercontent.com/search?q=cache:v0RVf0wqou0J:vm-kernel.org/blog/2009/07/15/qemu-internal-part-3-memory-watchpoint/+qemu+internal&amp;hl=zh-TW&strip=0" style="text-decoration:underline;color:#00c">完整版</a></div>
+<div>這些搜尋字詞已反白標明： <span style="background:#ffff66;color:black;font-weight:bold">qemu</span>&nbsp;<span style="background:#a0ffff;color:black;font-weight:bold">internal</span>&nbsp;&nbsp;</div></div></div><div style="position:relative">
+<html>
+<div id="wrapper">
+<head><META http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>qemu internal part 3: memory watchpoint</title>
+
+
+
+
+    <ul id = "catlist">
+    </ul>
+
+
+<hr>
+
+</head>
+
+<body>
+<div id="container">
+
+
+<h1 id="toc_1"><b style="color:black;background-color:#ffff66">qemu</b> <b style="color:black;background-color:#a0ffff">internal</b> part 3: memory watchpoint</h1>
+<p>
+In <b style="color:black;background-color:#ffff66">qemu</b> there is an amazing feature – memory watchpoint. It can watch all the memory access including memory read, write or both of them. When guest os/application touches the memory region watched by <b style="color:black;background-color:#ffff66">qemu</b>, a registered function will be called and you can do everything as you want in this function. The gdb stub in <b style="color:black;background-color:#ffff66">qemu</b> uses it to implement the memory watch command.
+<p>
+The implemention of memory watchpoint is tricky in <b style="color:black;background-color:#ffff66">qemu</b>. In last article of <b style="color:black;background-color:#ffff66">qemu</b> <b style="color:black;background-color:#a0ffff">internal</b>, we know that when emulating memory access, <b style="color:black;background-color:#ffff66">qemu</b> needs to distinguish the normal RAM read/write from memory mapped I/O read/write. If it is a memory mapped I/O address access, <b style="color:black;background-color:#ffff66">qemu</b> will dispatch this access to the registered I/O emulation functions. <b style="color:black;background-color:#ffff66">Qemu</b> use this mechanism to implement the memory watchpoint. When accessing the memory address watched by <b style="color:black;background-color:#ffff66">qemu</b>, <b style="color:black;background-color:#ffff66">qemu</b> will dispatch this access to the registered memory watch functions, even if this address is normal guest RAM address or memory mapped I/O address! <b style="color:black;background-color:#ffff66">Qemu</b> will do all the magic things in these memory watch functions.
+<p>
+In the following, I will use an example to explain the whole process of memory watch implement of <b style="color:black;background-color:#ffff66">qemu</b>.
+<pre>
+80103c60 :
+80103c60:       00801021        move    v0,a0
+80103c64 <__copy_user>:
+80103c64:       2cca0004        sltiu   t2,a2,4
+80103c68:       30890003        andi    t1,a0,0x3
+80103c6c:       15400068        bnez    t2,80103e10 <__copy_user+0x1ac>
+80103c70:       30a80003        andi    t0,a1,0x3
+80103c74:       1520003d        bnez    t1,80103d6c <__copy_user+0x108>
+80103c78:       00000000        nop
+80103c7c:       15000046        bnez    t0,80103d98 <__copy_user+0x134>
+80103c80:       00064142        srl     t0,a2,0x5
+80103c84:       11000017        beqz    t0,80103ce4 <__copy_user+0x80>
+80103c88:       30d8001f        andi    t8,a2,0x1f
+80103c8c:       00000000        nop
+80103c90:       8ca80000        lw      t0,0(a1)
+</pre>
+
+<p>
+These asm lines are objdumped from linux 2.6.30 kernel for mips malta. Assume that I want to  watch the memory access of virtual address 0x804cd000(swapper_pg_dir in linux kernel).
+<p>
+First I insert the watchpoint into cpu.
+<pre>
+cpu_watchpoint_insert(env, 0x804cd000, 4, BP_GDB | BP_MEM_ACCESS,
+                        NULL);
+</pre>
+<P>And then I need to register the vm state changing call back functions.
+</p>
+
+<pre>
+qemu_add_vm_change_state_handler(spy_vm_state_change, NULL);
+</pre>
+<p>
+If register a1=0x804cd000, guest linux kernel will touch the watched memory region when pc is 0x80103c90, then <b style="color:black;background-color:#ffff66">qemu</b> dispatches this access to the registered memory watch function, even if this access is a noram guest RAM access.The memory watch functions in <b style="color:black;background-color:#ffff66">qemu</b> are in array watch_mem_read/watch_mem_write.
+<pre>
+exec.c
+
+2649 static CPUReadMemoryFunc *watch_mem_read[3] = {
+2650     watch_mem_readb,
+2651     watch_mem_readw,
+2652     watch_mem_readl,
+2653 };
+2654
+2655 static CPUWriteMemoryFunc *watch_mem_write[3] = {
+2656     watch_mem_writeb,
+2657     watch_mem_writew,
+2658     watch_mem_writel,
+2659 };
+</pre>
+<p>
+In function watch_mem_readl, it will call function check_watchpoint first.
+<pre>
+exec.c
+
+2622 static uint32_t watch_mem_readl(void *opaque, target_phys_addr_t addr)
+2623 {
+2624     check_watchpoint(addr & ~TARGET_PAGE_MASK, ~0x3, BP_MEM_READ);
+2625     return ldl_phys(addr);
+2626 }
+
+2563 static void check_watchpoint(int offset, int len_mask, int flags)
+2564 {
+2565     CPUState *env = cpu_single_env;
+2566     target_ulong pc, cs_base;
+2567     TranslationBlock *tb;
+2568     target_ulong vaddr;
+2569     CPUWatchpoint *wp;
+2570     int cpu_flags;
+2571
+2572     if (env->watchpoint_hit) {
+2573         /* We re-entered the check after replacing the TB. Now raise
+2574          * the debug interrupt so that is will trigger after the
+2575          * current instruction. */
+2576         cpu_interrupt(env, CPU_INTERRUPT_DEBUG);
+2577         return;
+2578     }
+2579     vaddr = (env->mem_io_vaddr & TARGET_PAGE_MASK) + offset;
+2580     TAILQ_FOREACH(wp, &env->watchpoints, entry) {
+2581         if ((vaddr == (wp->vaddr & len_mask) ||
+2582              (vaddr & wp->len_mask) == wp->vaddr) && (wp->flags & flags)) {
+2583             wp->flags |= BP_WATCHPOINT_HIT;
+2584             if (!env->watchpoint_hit) {
+2585                 env->watchpoint_hit = wp;
+2586                 tb = tb_find_pc(env->mem_io_pc);
+2587                 if (!tb) {
+2588                     cpu_abort(env, "check_watchpoint: could not find TB for "
+2589                               "pc=%p", (void *)env->mem_io_pc);
+2590                 }
+2591                 cpu_restore_state(tb, env, env->mem_io_pc, NULL);
+2592                 tb_phys_invalidate(tb, -1);
+2593                 if (wp->flags & BP_STOP_BEFORE_ACCESS) {
+2594                     env->exception_index = EXCP_DEBUG;
+2595                 } else {
+2596                     cpu_get_tb_cpu_state(env, &pc, &cs_base, &cpu_flags);
+2597                     tb_gen_code(env, pc, cs_base, cpu_flags, 1);
+2598                 }
+2599                 cpu_resume_from_signal(env, NULL);
+2600             }
+2601         } else {
+2602             wp->flags &= ~BP_WATCHPOINT_HIT;
+2603         }
+2604     }
+2605 }
+</pre>
+<p>
+When check_watchpoint is executed in the first time, env->watchpoint_hit is null. Then it will check whether the address is a watched address. If so, set the flag BP_WATCHPOINT_HIT in wp->flags(line 2583) and set env->watchpoint_hit to wp. Then it will find and invalidate the current translation block(line 2586-2592). If the flag BP_STOP_BEFORE_ACCESS in wp is not set, then <b style="color:black;background-color:#ffff66">qemu</b> will translate the code from current pc(line 2596-2597) and resume the guest instruction emulation(line 2599). Function cpu_resume_from_signal will jump to line 256 in cpu-exec.c and rerun the emulation process from the lw instruction(pc=0x80103c90).
+<pre>
+cpu-exec.c
+
+255     for(;;) {
+256         if (setjmp(env->jmp_env) == 0) {
+257             env->current_tb = NULL;
+258             /* if an exception is pending, we execute it here */
+259             if (env->exception_index >= 0) {
+260                 if (env->exception_index >= EXCP_INTERRUPT) {
+261                     /* exit request from the cpu execution loop */
+262                     ret = env->exception_index;
+263                     if (ret == EXCP_DEBUG)
+264                         cpu_handle_debug_exception(env);
+265                     break;
+266                 } else {
+</pre>
+<p>
+Why do <b style="color:black;background-color:#ffff66">qemu</b> need to invalidate current translation block and regenerate the code? Because this memory access(pc=0x80103c90) is in the middle of a translation block. If we want to rerun this instruction, we need to regenerate the code from this instruction(pc=0x80103c90). Moreover before invalidating the translation block, <b style="color:black;background-color:#ffff66">qemu</b> needs to sync the cpu state to guest cpu(cpu_restore_state). That’s because the cpu state in the middle of translation block is different from the actual cpu state. Understanding this process needs some knowledge of binary translation. If you find it is hard to understand, just ignore it.
+<p>
+Now <b style="color:black;background-color:#ffff66">qemu</b> rerun the guest os from pc=0x80103c90. Because the memory address is a watched memory address, <b style="color:black;background-color:#ffff66">qemu</b> will call watch_mem_readl->check_watchpoint again. But this time, env->watchpoint_hit is not null(<b style="color:black;background-color:#ffff66">qemu</b> set it in last call), then it will call cpu_interrupt and return from function check_watchpoint. Then in watch_mem_readl it will call ldl_phys to fetch the value from guest RAM. Function cpu_interrupt in check_watchpoint  sets the CPU_INTERRUPT_DEBUG to flag to env->interrupt_request.
+<p>
+Then <b style="color:black;background-color:#ffff66">qemu</b> runs normally just like nothing has happened. Because the CPU_INTERRUPT_DEBUG has been set in env->interrupt_request, the main loop of cpu emulation will return.
+<pre>
+cpu-exec.c
+
+355                     if (interrupt_request & CPU_INTERRUPT_DEBUG) {
+356                         env->interrupt_request &= ~CPU_INTERRUPT_DEBUG;
+357                         env->exception_index = EXCP_DEBUG;
+358                         cpu_loop_exit();
+359                     }
+
+54 void cpu_loop_exit(void)
+55 {
+56     /* NOTE: the register at this point must be saved by hand because
+57        longjmp restore them */
+58     regs_to_env();
+59     longjmp(env->jmp_env, 1);
+60 }
+</pre>
+<p>
+Function cpu_loop_exit will do longjmp to line 256 in cpu-exec.c. Because env->exception_index is EXCP_DEBUG, it will break from the loop of function cpu_exec. Function cpu_exec returns to main_loop in vl.c.
+<pre>
+vl.c
+
+3800                 ret = cpu_exec(env);
+
+3850             if (unlikely(ret == EXCP_DEBUG)) {
+3851                 gdb_set_stop_cpu(cur_cpu);
+3852                 vm_stop(EXCP_DEBUG);
+3853             }
+</pre>
+<p>
+It will call gdb_set_stop_cpu and then vm_stop to stop the <b style="color:black;background-color:#ffff66">qemu</b>. It the virtual state is changed, <b style="color:black;background-color:#ffff66">qemu</b> will the call the callback functions registered by qemu_add_vm_change_state_handler. So the function spy_vm_state_change will be called.
+<p>
+In sum, when accessing the watched memory address, the memory watch functions will be called. It will call function check_watchpoint. Function check_watchpoint will set env->watchpoint_hit to current watchpoint and rerun the guest os/applicaton from current pc. Then memory watched functions will be called again. It will call function check_watchpoint. This time, function check_watchpoint just set the flag in env->interrupt_request and tells cpu to interrupt the emulation process. And then <b style="color:black;background-color:#ffff66">qemu</b> will return to the main_loop and stop the vm. At last it will call the registered vm change state callback functions.
+
+
+<p>
+2009/07/15(YYYY/MM/DD) Category:<a href="/blog/category.html?cat=QEMU"><b style="color:black;background-color:#ffff66">QEMU</b></a>
+</br>
+Tag: <b style="color:black;background-color:#ffff66">QEMU</b>, MIPS, watchpoint
+</p>
+
+</div>
+
+<div id="disqus_thread"></div>
+
+Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+<a href="http://disqus.com" class="dsq-brlink">blog comments powered by Disqus</a>
+
+
+
+
+    <p>2008-2011</p><p> Theme copied from <a href="http://blog.hotoo.me/index.html">闲耘™(@hotoo)</a>with little changes.</p>
+
+
+</body></html>
+START <b style="color:black;background-color:#ffff66">qemu</b> <b style="color:black;background-color:#a0ffff">internal</b> part 3: memory watchpoint,/blog/2009/07/15/<b style="color:black;background-color:#ffff66">qemu</b>-<b style="color:black;background-color:#a0ffff">internal</b>-part-3-memory-watchpoint/,2009/07/15,<b style="color:black;background-color:#ffff66">QEMU</b> END

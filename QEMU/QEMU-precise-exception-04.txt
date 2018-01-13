@@ -1,0 +1,219 @@
+                 Copyright (c) 2012 陳韋任 (Chen Wei-Ren)
+
+好! 我們現在找到例外 (本範例是頁缺失) 是發生在某個 TranslationBlock 裡頭，
+但是到底是哪一條 guest 指令觸發頁缺失? 我們需要從頭翻譯該 TranslationBlock
+對應的 guest binary 來揪出罪魁禍首。一般情況下，QEMU 在翻譯 guest binary
+時不會記錄 guest pc 資訊。這時，為了定位 guest pc，QEMU 在翻譯 guest binary
+會記錄額外的資訊，包含 guest pc。
+
+QEMU 會用到底下定義在 translate-all.c 資料結構: 
+
+  target_ulong gen_opc_pc[OPC_BUF_SIZE]; // 紀錄 guest pc。
+  uint8_t gen_opc_instr_start[OPC_BUF_SIZE]; // 當作標記之用。
+
+針對 x86，又在 target-i386/translate.c 定義以下資料結構: 
+
+  static uint8_t gen_opc_cc_op[OPC_BUF_SIZE]; // 紀錄 condition code。
+
+現在來看 cpu_restore_state (translate-all.c)。searched_pc 傳入的 (幾乎)
+是發生例外的 host pc。
+
+-----------------
+int cpu_restore_state(TranslationBlock *tb,
+                      CPUState *env, unsigned long searched_pc,
+                      void *puc)
+{
+    tcg_func_start(s); // 初始 gen_opc_ptr 和 gen_opparam_ptr
+
+    // 轉呼叫 gen_intermediate_code_internal，要求在生成 TCG IR
+    // 的同時，為其生成相關的 guest pc 和其它資訊於下列資料結構。
+    //
+    //   gen_opc_pc, gen_opc_instr_start, 和 gen_opc_cc_op
+    //
+    gen_intermediate_code_pc(env, tb); 
+
+    // 轉呼叫 tcg_gen_code_common (tcg/tcg.c) 將 TCG IR 翻成 host binary。
+    // 返回 TCG gen_opc_buf index。
+    j = tcg_gen_code_search_pc(s, (uint8_t *)tc_ptr, searched_pc - tc_ptr);
+
+    // gen_opc_instr_start[j] 若為 1，代表 gen_opc_pc[j] 和 gen_opc_cc_op[j]
+    // 正是我們所要的資訊。
+    while (gen_opc_instr_start[j] == 0)
+        j--;
+
+    // 回復 CPUState。
+    gen_pc_load(env, tb, searched_pc, j, puc);
+
+}
+-----------------
+
+gen_intermediate_code_pc 是 gen_intermediate_code_internal 的包裝，search_pc
+設為 1。當 search_pc 為 true，在翻譯 guest binary 的同時，生成額外資訊。
+
+-----------------
+static inline void gen_intermediate_code_internal(CPUState *env,
+                                                  TranslationBlock *tb,
+                                                  int search_pc)
+{
+    // guest binary -> TCG IR
+    for(;;) {
+
+        if (search_pc) {
+            // gen_opc_ptr 為 TCG opcode buffer 目前位址，gen_opc_buf 為
+            // TCG opcode buffer 的起始位址。
+            j = gen_opc_ptr - gen_opc_buf;
+            if (lj < j) {
+                lj++;
+                while (lj < j)
+                    gen_opc_instr_start[lj++] = 0; // 不到 j 的部分填零。
+            }
+            gen_opc_pc[lj] = pc_ptr; // 紀錄 guest pc。
+            gen_opc_cc_op[lj] = dc->cc_op; // 紀錄 condition code。
+            gen_opc_instr_start[lj] = 1; // 填 1 作為標記。
+            gen_opc_icount[lj] = num_insns;
+        }
+
+        // 針對 pc_ptr 代表的 guest pc 進行解碼並生成 TCG IR，返回下一個 guest pc。
+        pc_ptr = disas_insn(dc, pc_ptr);
+    
+    }
+}
+-----------------
+
+tcg_gen_code_search_pc 是 tcg_gen_code_common 的包裝，search_pc (應命名為
+offset) 設為發生例外的 host binary 與其所屬 basic block 在 code cache 開頭
+(tc_ptr) 的 offset。注意! 此時傳入 gen_code_buf 的是觸發例外的 TranslationBlock
+其 tc_ptr。也就是說，現在 TCG IR -> host binary 中的 host binary 是寫在發生
+例外 host binary 所屬 basic block 在 code cache 的開頭。我們把這段 host binary
+覆寫了! 當然寫的內容和被覆寫的內容一模一樣。我們只想要透過這個方式反推觸發
+例外的 guest pc。
+
+-----------------
+static inline int tcg_gen_code_common(TCGContext *s, uint8_t *gen_code_buf,
+                                      long search_pc)
+{
+    for(;;) {
+        switch(opc) {
+        case INDEX_op_nopn:
+            args += args[0];
+            goto next;
+        case INDEX_op_call:
+            dead_args = s->op_dead_args[op_index];
+            args += tcg_reg_alloc_call(s, def, opc, args, dead_args);
+            goto next;
+        }
+        args += def->nb_args;
+    next:
+        // 如果 offset (search_pc) 落在 tc_ptr (gen_code_buf) 和 code cache
+        // 目前存放 host binary 的位址之間， 返回 TCG gen_opc_buf index。
+        if (search_pc >= 0 && search_pc < s->code_ptr - gen_code_buf) {
+            return op_index;
+        }
+        op_index++;
+    }
+}
+-----------------
+
+此時，gen_opc_pc 和 gen_opc_cc_op 已存放發生例外的 guest pc 和當時的 condition
+code。gen_pc_load 負責回復 CPUState。
+
+-----------------
+void gen_pc_load(CPUState *env, TranslationBlock *tb,
+                unsigned long searched_pc, int pc_pos, void *puc)
+{
+    env->eip = gen_opc_pc[pc_pos] - tb->cs_base;
+    cc_op = gen_opc_cc_op[pc_pos];
+}
+-----------------
+
+至此，CPUState 已完全回復，我們回來看 tlb_fill。raise_exception_err
+(target-i386/op_helper.c) 這時候拉起虛擬 CPU 的 exception_index
+(env->exception_index)，並設置 error_code (env->error_code)。
+
+----------------
+void tlb_fill(target_ulong addr, int is_write, int mmu_idx, void *retaddr)
+{
+    ret = cpu_x86_handle_mmu_fault(env, addr, is_write, mmu_idx, 1);
+    if (ret) {
+        if (retaddr) {
+
+            // 當客戶發生頁缺失 (ret == 1) 且 tlb_fill 是從 code cache 中被
+            // 呼叫 (retaddr != 0)，我們會在這裡。
+
+            /* now we have a real cpu fault */
+            pc = (unsigned long)retaddr;
+            tb = tb_find_pc(pc);
+            if (tb) {
+                /* the PC is inside the translated code. It means that we have
+                   a virtual CPU fault */
+                cpu_restore_state(tb, env, pc, NULL);
+            }
+        }
+        raise_exception_err(env->exception_index, env->error_code);
+    }
+    env = saved_env;
+}
+-----------------
+
+raise_exception_err 實際上是 raise_interrupt 的包裝 (wrapper)。QEMU_NORETURN
+前綴代表此函式不會返回。它其實是 GCC 擴展 __attribute__ ((__noreturn__))，
+定義在 qemu-common.h [1]。
+
+-----------------
+static void QEMU_NORETURN raise_interrupt(int intno, int is_int, int error_code,
+                                          int next_eip_addend)
+{
+    ... 略 ...
+
+    env->exception_index = intno;
+    env->error_code = error_code;
+    env->exception_is_int = is_int;
+    env->exception_next_eip = env->eip + next_eip_addend;
+    cpu_loop_exit();
+}
+-----------------
+
+cpu_loop_exit (cpu-exec.c) 用 longjmp 返回至 cpu_exec (cpu-exec.c) 中
+處理例外的分支。
+
+-----------------
+void cpu_loop_exit(void)
+{
+    env->current_tb = NULL;
+    longjmp(env->jmp_env, 1);
+}
+-----------------
+
+來看 cpu_exec。cpu_exec 裡用到許多 #ifdef，強烈建議查看經過預處理之後
+結果，即 ${BUILD}/i386-softmmu/cpu-exec.i 中的 cpu_x86_exec。
+
+-----------------
+int cpu_exec(CPUState *env)
+{
+    // 進行翻譯並執行的迴圈。
+    /* prepare setjmp context for exception handling */
+    for(;;) {
+        if (setjmp(env->jmp_env) == 0) { // 正常流程。
+            /* if an exception is pending, we execute it here */
+            if (env->exception_index >= 0) {
+
+              /* 2. 再來到這裡，處理例外。 */
+
+            }
+ 
+            next_tb = 0; /* force lookup of first TB */
+            for(;;) {
+ 
+            } /* inner for(;;) */
+        }
+
+        /* 1. 我們先來到這裡。 */
+    
+    } /* outer for(;;) */
+}
+-----------------
+
+O.K.，到這裡就是一個循環。:) 接著，我們來驗證一下我們對 QEMU 的理解。
+
+
+[1] http://gcc.gnu.org/onlinedocs/gcc/Function-Attributes.html

@@ -1,0 +1,262 @@
+                 Copyright (c) 2012 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  我們主要著墨在當 QEMU 發起 KVM_RUN 運行客戶機時，KVM 是如何切換至非根模式。
+底下是概略的函式路徑:
+
+  KVM_RUN --> kvm_vcpu_ioctl (kvm_main.c)
+
+                    |
+                    v
+
+              kvm_arch_vcpu_ioctl_run (x86.c)
+
+                    |
+                    v
+
+              __vcpu_run (x86.c)
+
+                    |
+                    v
+
+              vcpu_enter_guest (x86.c)
+ 
+                    |
+                    v
+
+              kvm_x86_ops->run(vcpu) (vmx_vcpu_run in vmx.c)
+
+
+我們再回顧一下 QEMU 那裡發起 KVM_RUN 的函式。
+
+int kvm_cpu_exec(CPUArchState *env)
+{
+    struct kvm_run *run = env->kvm_run;
+
+    do {
+        ... 略 ...
+
+        run_ret = kvm_vcpu_ioctl(env, KVM_RUN, 0);
+
+        switch (run->exit_reason) {
+        case KVM_EXIT_IO:
+            DPRINTF("handle_io\n");
+            kvm_handle_io(run->io.port,
+                          (uint8_t *)run + run->io.data_offset,
+                          run->io.direction,
+                          run->io.size,
+                          run->io.count);
+            ret = 0;
+            break;
+        case KVM_EXIT_MMIO:
+            DPRINTF("handle_mmio\n");
+            cpu_physical_memory_rw(run->mmio.phys_addr,
+                                   run->mmio.data,
+                                   run->mmio.len,
+                                   run->mmio.is_write);
+            ret = 0;
+            break;
+
+        ... 略 ...
+
+        }
+    }
+}
+
+  KVM 的處理流程如下:
+
+  1. kvm_vcpu_ioctl (virt/kvm/kvm_main.c) 處理針對 VCPU 發起的命令。
+
+static long kvm_vcpu_ioctl(struct file *filp,
+         unsigned int ioctl, unsigned long arg)
+{
+  switch (ioctl) {
+  case KVM_RUN:
+    r = -EINVAL;
+    if (arg)
+      goto out;
+    r = kvm_arch_vcpu_ioctl_run(vcpu, vcpu->run);
+    trace_kvm_userspace_exit(vcpu->run->exit_reason, r);
+    break;
+  ... 略 ...
+}
+
+  2. kvm_arch_vcpu_ioctl_run (arch/x86/kvm/x86.c)。
+
+int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
+{
+  ... 略 ...
+ 
+  r = __vcpu_run(vcpu);
+ 
+out:
+  post_kvm_run_save(vcpu);
+  if (vcpu->sigset_active)
+    sigprocmask(SIG_SETMASK, &sigsaved, NULL);
+ 
+  return r;
+}
+
+  3. __vcpu_run (arch/x86/kvm/x86.c)。
+
+static int __vcpu_run(struct kvm_vcpu *vcpu)
+{
+  ... 略 ...
+ 
+  while (r > 0) {
+    if (vcpu->arch.mp_state == KVM_MP_STATE_RUNNABLE &&
+        !vcpu->arch.apf.halted)
+      r = vcpu_enter_guest(vcpu);
+    else {
+      ... 略 ...
+    }
+    ... 略 ...
+  }
+ 
+  srcu_read_unlock(&kvm->srcu, vcpu->srcu_idx);
+ 
+  vapic_exit(vcpu);
+ 
+  return r;
+}
+
+  4. vcpu_enter_guest (arch/x86/kvm/x86.c)。
+
+static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
+{
+  // 檢查 VCPU 是否有待處理的事件。
+  if (vcpu->requests) {
+  }
+ 
+  // 注入中斷至 VCPU。
+  if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win) {
+    inject_pending_event(vcpu);
+
+    ... 略 ...
+  }
+ 
+  // 載入客戶機頁表。
+  r = kvm_mmu_reload(vcpu);
+ 
+  kvm_guest_enter();
+ 
+  // 進入非根模式，運行客戶機。
+  kvm_x86_ops->run(vcpu); - (1)
+ 
+  ... 略 ...
+ 
+  // 處理 VMExit。
+  r = kvm_x86_ops->handle_exit(vcpu); - (2)
+out:
+  return r;
+}
+
+  5. vmx_vcpu_run 之前已註冊在 kvm_x86_ops 中。vmx_vcpu_run (arch/x86/kvm/vmx.c)
+     載入必要的客戶機狀態，並發起 VMLAUNCH/VMRESUME 切換至客戶機模式。
+
+static void __noclone vmx_vcpu_run(struct kvm_vcpu *vcpu)
+{
+        vmx->__launched = vmx->loaded_vmcs->launched;
+        asm(
+                ... 略 ...
+ 
+                // 硬體並不會將所有客戶機暫存器載入至 CPU，部分交由 KVM 處理。
+                /* Load guest registers.  Don't clobber flags. */
+                "mov %c[rax](%0), %%"R"ax \n\t"
+                "mov %c[rbx](%0), %%"R"bx \n\t"
+                "mov %c[rdx](%0), %%"R"dx \n\t"
+                "mov %c[rsi](%0), %%"R"si \n\t"
+                "mov %c[rdi](%0), %%"R"di \n\t"
+                "mov %c[rbp](%0), %%"R"bp \n\t"
+                "mov %c[rcx](%0), %%"R"cx \n\t" /* kills %0 (ecx) */
+ 
+                // x86/include/asm/vmx.h 以 hex 定義 ASM_VMX_VMLAUNCH 和 ASM_VMX_VMRESUME，
+                // 這是因應舊有的組譯器認不得 VMX_VMLAUNCH 和 VMX_VMRESUME 指令。
+                /* Enter guest mode */
+                "jne .Llaunched \n\t"
+                __ex(ASM_VMX_VMLAUNCH) "\n\t"
+                "jmp .Lkvm_vmx_return \n\t"
+                ".Llaunched: " __ex(ASM_VMX_VMRESUME) "\n\t"
+                ".Lkvm_vmx_return: "
+ 
+                // 返回根模式內核態。
+                /* Save guest registers, load host registers, keep flags */
+ 
+                ... 略 ...
+ 
+              );
+ 
+                ... 略 ...
+}
+
+  6. vmx_handle_exit (arch/x86/kvm/vmx.c) 之前已註冊在 kvm_x86_ops 中。
+
+static int vmx_handle_exit(struct kvm_vcpu *vcpu)
+{
+  ... 略 ...
+ 
+  if (exit_reason < kvm_vmx_max_exit_handlers
+      && kvm_vmx_exit_handlers[exit_reason])
+    return kvm_vmx_exit_handlers[exit_reason](vcpu);
+  else {
+    vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+    vcpu->run->hw.hardware_exit_reason = exit_reason;
+  }
+  return 0;
+}
+
+   o kvm_vmx_exit_handlers 針對各種 VMExit 的來源定義對應的處理函式。
+
+static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
+  [EXIT_REASON_EXCEPTION_NMI]           = handle_exception,
+  ... 略 ...
+  [EXIT_REASON_CR_ACCESS]               = handle_cr,
+  [EXIT_REASON_INVLPG]          = handle_invlpg,
+  [EXIT_REASON_MONITOR_INSTRUCTION]     = handle_invalid_op,
+};
+
+  至此，我們已講解底下流程圖 KVM (kernel mode) 的 (1)(2) 部分。
+
+      QEMU (user mode)       KVM (kernel mode)        Guest VM (guest mode)
+
+        Issue Guest
+  -->                 -------------
+ |    Execution ioctl              |
+ |                                 |
+ |                                 |
+ |                                 v
+ |                                             VMLAUNCH/VMRESUME 
+ |                        --> Enter Guest Mode ---------------
+ |                       |        (1)                         |
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    v
+ |                       |              
+ |                       |                             Execute natively
+ |                       |           
+ |                       |                               in Guest Mode
+ |                       |              
+ |                       |                                    |
+ |                       |                                    |
+ |                       |       (2)               VMEXIT     |
+ |                       |    Handle Exit     <--------------- 
+ |                       |                      VMCALL/HW trigger
+ |                       |        |              
+ |                       |        |
+ |                       |        |
+ |                       |        v 
+ |                    Y  |
+ |           ------------------- I/O?
+ |          |            |
+ |          |            |        |
+ |          |            |        | N
+ |          v            |        |
+ |                       |   Y    v
+  ----  Handle I/O <----------- Signal
+                         |
+                         |     Pending?
+                         | 
+                         |        |
+                         |        | N
+                         |        |
+                         --------- 

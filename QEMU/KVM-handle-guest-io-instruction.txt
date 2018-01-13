@@ -1,0 +1,77 @@
+
+
+
+     KVM_RUN ------> __vcpu_run ------> KVM_EXIT ------> Handle IO -------
+                                                                          |
+        ^                 ^                                               |
+        |                 |                                               v
+        |                 |                                Y
+        |                  -------- KVM handle PIO  <----------- Can be handled in KVM?
+        | 
+        |                                                                 |
+        |                                                                 | N
+        |                                                                 |
+         -------------------- QEMU handle PIO  <--------------------------
+
+
+IO emulation in QEMU
+          ---> KVM_RUN (kvm_cpu_exec in QEMU)
+         |   
+         |            |
+         |            v
+         |   
+         |     kvm_vcpu_ioctl (kvm_main.c)
+         |   
+         |            |
+         |            v
+         |    
+         |     kvm_arch_vcpu_ioctl_run (x86.c) 
+         |   
+         |            |
+         |            v                               
+         |                                          IO emulation done in KVM, continue vcpu_enter_guest
+         |     __vcpu_run (x86.c) <---------------------------------------------------------------------------------------------------
+         |                                                                                                                            |
+         |            |                                                                                                               |
+         |            v                                                                                                               |
+         |                                                                                                                            |
+         |     vcpu_enter_guest (x86.c)                                                                                               |
+         |                                                                                                                            |
+         |            |                                                                                                               |
+         |            v                                                                                                               |
+         |                                               VMExit                                                                       |
+         |     kvm_x86_ops->run (vmx_vcpu_run in vmx.c) --------> kvm_x86_ops->handle_exit (vmx_handle_exit in vmx.c)                 |
+         |             VMLAUNCH/VMRESUME                                                                                              |
+         |                                                                   |                                                        |
+         |                                                                   v                                                        |
+         |                                                                                                                            |
+         |                                                        kvm_vmx_exit_handlers[exit_reason] (handle_io in vmx.c)             |
+         |                                                                                                                            |
+         |                                                                   |                                                        |
+         |                                                                   v                                                        |
+         |                                                                                                                            |
+         |                                                        kvm_fast_pio_out (x86.c)                                            |
+         |                                                                                                                            |
+         |                                                                   |                                                        |
+         |                                                                   v                                                        |
+         |                                                                                                                            |
+         |                                                        emulator_pio_out_emulated (x86.c)                                   |
+         |                                                                                                                            |
+         |                                                                   |                                                        |
+         |                                                                   v                                                        |
+         |                                                                                                                            |
+         |                                                        emulator_pio_in_out (x86.c)                                         |
+         |                                                                                                                            |
+         |                                                                   |                                                        |
+         |                                             ---------------------------------                                              |
+         |                                            |                                 |                                             |
+         |                                            v                                 v                                             |
+         |                                                                                                                            |
+         |                                      setup kvm_run                     kernel_pio (x86.c)                                  |
+         |                                        (return 0)                        (return 1)                                        |
+         |                                                                                                                            |
+         |                                            |                                 |                                             |
+          --------------------------------------------                                   --------------------------------------------- 
+
+
+  * return 0 means we need to go back to QEMU; return 1 means we can continue vcpu_enter_guest

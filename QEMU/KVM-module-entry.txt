@@ -1,0 +1,31 @@
+
+
+
+
+    vmx_init (vmx.c)
+
+        |
+        v
+
+    kvm_init (kvm_main.c)
+
+        |
+        v
+
+    kvm_arch_init (kvm_main.c) --> kvm_arch_hardware_setup (x86.c)
+
+        |                                    |
+        v                                    v
+
+    kvm_timer_init (x86.c)         kvm_x86_ops->hardware_setup (hardware_setup in vmx.c)
+
+                                             |
+                                             v
+
+                                   setup_vmcs_config (vmx.c) --> alloc_kvm_area (vmx.c)
+
+                                                                        | For each VCPU, do the following
+                                                                        v
+
+                                                                 alloc_vmcs_cpu (vmx.c)
+

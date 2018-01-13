@@ -1,0 +1,43 @@
+      QEMU (user mode)       KVM (kernel mode)        Guest VM (guest mode)
+
+        Issue Guest
+  -->                 -------------
+ |    Execution ioctl              |
+ |                                 |
+ |          (1)                    |
+ |                                 v
+ |                                             VMLAUNCH/VMRESUME 
+ |                        --> Enter Guest Mode ---------------
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    v
+ |                       |              
+ |                       |                             Execute natively
+ |                       |           
+ |                       |                               in Guest Mode
+ |                       |              
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                         VMEXIT     |
+ |                       |    Handle Exit     <--------------- 
+ |                       |                      VMCALL/HW trigger
+ |                       |        |              
+ |                       |        |
+ |                       |        |
+ |                       |        v 
+ |                    Y  |
+ |           ------------------- I/O?
+ |          |            |
+ |          |            |        |
+ |          |            |        | N
+ |          v            |        |
+ |                       |   Y    v
+  ----  Handle I/O <----------- Signal
+                         |
+           (2)           |     Pending?
+                         | 
+                         |        |
+                         |        | N
+                         |        |
+                         --------- 

@@ -1,0 +1,61 @@
+
+
+
+                   guest                     guest
+              physical memory            virtual memory               code cache
+                -----------               -----------            -------------------
+               |           |             |     A     |          |    -------        |
+               |     1     |             |\\\\\\\\\\\|          |   |  tb1  |       |
+               |           |             |           |          |   |\\\\\\\|       |
+               |-----------|    Guest    |-----------|          |    -------        |
+               |           |  Page Table |           |          |        |          |
+               |     2     | <---------> |     B     |          |       -------     |
+               |           |             |///////////|          |      |  tb2  |    |
+               |-----------|             |-----------|          |      |///////|    |
+               |           |             |///////////|          |      |///////|    |
+ swap out  <-- |     3     |             |           |          |       -------     |
+               |           |             |     C     |           -------------------
+                -----------               -----------
+         
+   
+   Before: 1 - A, 2 - B, 3 - C 
+   After : 1 - A, 2 - B, 3 - X 
+ 
+                                     qemu_ld/qemu_st (GVA xxx)
+
+                                             |
+                                             v
+                                                      Y
+ env->tlb_table (GVA -> HVA)     -------> TLB Hit?  -----> (HVA yyy) mov yyy %r1
+                                |                          
+                                |            | N
+                                             v 
+                        * tlb_set_page                  
+                      (change GVA -> HVA) __{st,ld}{b,w,l,q}_mmu
+                                
+                                |            |
+                                |            v
+                                |  Y
+                                 -------- tlb_fill  
+                                   (walk guest page table)                     
+                            
+                                             | N (guest page fault)
+                                             v
+
+                                      cpu_restore_state
+
+                                             |
+                                             v
+
+                                     raise_exception_err
+
+                                             |
+                                             v
+
+                            go back to cpu_exec to translate/execute
+                                  guest OS page fault handler
+
+
+  * tlb_set_page makes old mapping invalid.
+
+  

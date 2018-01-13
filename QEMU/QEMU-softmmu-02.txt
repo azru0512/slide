@@ -1,0 +1,56 @@
+3. Software MMU
+
+- softmmu_defs.h
+- softmmu_template.h
+
+// tcg/i386/tcg-target.c
+
+static void *qemu_ld_helpers[4] = {
+    __ldb_mmu, // load byte
+    __ldw_mmu, // load word
+    __ldl_mmu, // load long
+    __ldq_mmu, // load quad word
+};
+ 
+// target-i386/op_helper.c
+
+#define MMUSUFFIX _mmu
+ 
+#define SHIFT 0
+#include "softmmu_template.h"
+ 
+// softmmu_template.h
+DATA_TYPE REGPARM glue(glue(__ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
+                                                      int mmu_idx)
+{
+}
+
+- softmmu_header.h
+- softmmu_exec.h
+
+// target-xxx/cpu.h 自行定義 MMU_MODE?_SUFFIX。
+// 以 i386 為例: _kernel，_user。
+#define MEMSUFFIX MMU_MODE1_SUFFIX
+
+// target-i386/op_helper.c
+
+#include "cpu.h"
+#include "softmmu_exec.h"
+ 
+// softmmu_exec.h
+#include "softmmu_defs.h"
+ 
+#define ACCESS_TYPE 0
+#define MEMSUFFIX MMU_MODE0_SUFFIX
+#define DATA_SIZE 1
+#include "softmmu_header.h"
+ 
+// softmmu_header.h
+// op_helper.i -> ldub_kernel
+// ld/st 最後會呼叫到 __ld/__st
+// kernel mode: env->tlb_table[0]
+// user mode: env->tlb_table[1]
+// data: env->tlb_table[(cpu_mmu_index(env))]
+static inline RES_TYPE glue(glue(ld, USUFFIX), MEMSUFFIX)(target_ulong ptr)
+{
+}

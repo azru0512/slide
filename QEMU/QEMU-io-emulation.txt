@@ -1,0 +1,75 @@
+                 Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  自 QEMU 1.0 版之後，主執行緒 main (vl.c) 即為 IO thread，不再同時負責運行客戶
+機代碼和模擬 IO。底下是概略的圖示:
+
+
+               1. aio_thread (posix-aio-compat.c)
+          ---------------------------------------->
+         |        (worker thread)
+         |
+         |                      main (vl.c) 
+  ------------------------------------------------------------------------>
+            |   |               (io thread)             
+            |   |
+            |   |   3. vnc_worker_thread (ui/vnc-jobs.c)
+            |    -------------------------->
+            |          (worker thread)
+            |
+            |
+            |    2. vcpu_thread (qemu_tcg_cpu_thread_fn, cpus.c)
+             -------------------------->
+
+當執行以下指令，登入之後，會有三個執行緒在運行。
+
+  $ qemu-system-i386 linux-0.2.img -vnc 0.0.0.0:1
+
+分別是: main、vnc_worker_thread 和 vcpu_thread。
+
+  1. main -> bdrv_init_with_whitelist -> bdrv_init -> module_call_init
+
+      -> bdrv_file_init -> cdrom_open -> raw_open_common -> paio_init -> do_spawn_thread -> aio_thread
+
+
+  1. main -> qemu_opts_foreach( , drive_init_func, , ) -> drive_init_func -> drive_init
+
+      -> bdrv_open (block.c) -> find_image_format -> bdrv_pread -> bdrv_read -> bdrv_rw_co (corutine)
+
+      -> qemu_aio_wait (aio.c) -> qemu_bh_poll (async.c) -> spawn_thread_bh_fn (posix-aio-compat.c)
+         ^^^^^^^^^^^^^
+
+      -> do_spawn_thread -> aio_thread (*) -> do_spawn_thread (?) -> handle_aiocb_rw (posix-aio-compat.c)
+
+      -> posix_aio_notify_event (notify the io is completed?)
+
+
+  2. main -> pc_init_pci -> pc_init1 -> pc_cpus_init -> pc_new_cpu -> cpu_x86_init
+
+      -> x86_cpu_realize -> qemu_init_vcpu -> qemu_tcg_init_vcpu -> qemu_tcg_cpu_thread_fn
+
+
+  3. main -> vnc_display_init -> vnc_start_worker_thread
+
+
+  為避免 IO thread 因執行 IO 而被阻塞 (同步 IO，synchronous I/O，blocking IO)。
+QEMU 提供兩種方案:
+
+    1. 非同步 IO (asynchronous I/O, non-blocking IO)。透過 qemu_set_fd_handler 註冊
+       fd 的回調函式。
+       
+       - qemu-aio.h aio.c
+       - linux-aio.c (需安裝 libaio [1])
+
+    2. 將 IO 交給所謂的 worker thread 執行。QEMU 透過 qemu_paio_submit (posix-aio-compat.c)
+       把 IO 請求寫入佇列，worker thread 再從佇列讀取 IO 請求並執行。採用 worker
+       thread 模式的有底下兩個範例。
+
+       - posix-aio-compat.c
+       - ui/vnc-jobs.c
+
+
+
+[1] http://lse.sourceforge.net/io/aio.html
+[] http://blog.vmsplice.net/2011/03/qemu-internals-big-picture-overview.html
+[] http://blog.vmsplice.net/2011/03/qemu-internals-overall-architecture-and.html

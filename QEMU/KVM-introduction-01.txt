@@ -1,0 +1,82 @@
+                 Copyright (c) 2012 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  這裡先複習一下，在虛擬化還沒出現之前，整個系統可以劃分成用戶態 (user mode) 和
+內核態 (kernel mode)。
+
+           QEMU   (user mode)
+      --------------------------
+         Linux   (kernel mode)
+
+為了因應虛擬化的要求，x86 多加了一層特權級: 根模式 (root mode) 和非根模式
+(non-root mode)。非根模式一般又稱 guest mode。
+ 
+                 ------------------------------
+              |  Guest App   (user mode)   |
+    non-root  | -------------------------- | Gust VM
+              |  Guest OS   (kernel mode)  |
+   ------------------------------------------
+                    QEMU     (user mode)           
+      root      --------------------------
+                 Linux/KVM  (kernel mode)
+
+一般我們在運行應用程序時，是處在根模式，只有在運行虛擬機的時候，才會由根模式
+切換至非根模式運行客戶機。客戶機在運行仍有其用戶態和內核態，只是這是非根模式
+下的用戶態和內核態。
+
+  使用 KVM 只需要在 QEMU 命令行中加上 "-enable-kvm"。
+
+$ qemu-system-i386 -enable-kvm linux-0.2.img -vnc 0.0.0.0:1
+
+QEMU 內部原本使用動態翻譯 (binary translation) 即 TCG 的方式運行客戶機，在將
+KVM 的邏輯加入 QEMU 之後，僅在 CPU 虛擬化的部分有所更動，至於內存和 IO 虛擬化
+基本上不變。在 QEMU 代碼中，你會看到如下的條件分支:
+
+    if (kvm_enabled()) {
+
+      ... KVM way ...
+
+    } else if (tcg_enabled()) {
+
+      ... TCG way ...
+ 
+    }
+
+它會用 kvm_enabled 和 tcg_enabled 來區分現在要走 KVM 亦或是 TCG 的代碼。
+
+  這裡先概述 QEMU/KVM 的運作方式 [1][2]。 
+
+         ---------------------
+         | ----------------  |
+         | |               | |
+         | |  Guest App    | |
+         | |---------------| |
+         | |               | |
+         | |　Guest OS     | |
+         | |_______________| |
+         | Guest VM          |
+         |___________________| QEMU
+              /dev/kvm                          (user mode)
+  -------------------------------------------------------------
+               kvm.ko
+   ---------------------------          Linux (kernel mode)   
+    kvm-intel.ko | kvm-amd.ko
+
+
+KVM 以內核模組 (kvm.ko) 的形式掛載進 Linux 內核。以 x86 為例，分別有 Intel 的
+VMX 和 AMD 的 SVM 對 CPU 虛擬化的實現。所以 kvm.ko 下層視情況會是 vmx.ko 或是
+svm.ko。先忽略 QEMU 的部分，我們先來看 KVM。KVM 將自身以 /dev/kvm 的形式暴露給
+上層應用程序。一般使用的流程如下:
+
+  1. 開啟 /dev/kvm 取得 KVM fd。
+
+  2. QEMU 對 KVM fd 發出 KVM_CREATE_VM 命令，取得 VM fd。VM fd 代表一個客戶機。
+
+  3. QEMU 對 VM fd 發出 KVM_CREATE_VCPU 命令，取得 VCPU fd。客戶機中每一個 VCPU
+     都要有一個相對應的 VCPU fd。
+
+  4. QEMU 對 VCPU fd 發出 KVM_RUN 命令，從根模式用戶態切換至根模式內核態進入
+     KVM，KVM 再透過 VMEntry 運行客戶機，此時從根模式內核態切換至非根模式。
+
+[1] http://blog.vmsplice.net/2011/03/qemu-internals-big-picture-overview.html
+[2] http://blog.vmsplice.net/2011/03/qemu-internals-overall-architecture-and.html

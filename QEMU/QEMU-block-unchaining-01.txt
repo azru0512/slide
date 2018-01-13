@@ -1,0 +1,13 @@
+3. Block unchaining
+
+  世界並不總是那麼美好。雖然說 block chaining 可以使大部分的時間都花在
+code cache。但在某些情況下，控制權必須交還給 QEMU。這時就需要把之前串
+接起來的 block 打斷。讀者可以再想想看，假設不將串接起來的 block 打斷會
+怎樣? 如果不把串接起來的 block 打斷，那麼 CPU 無法從 code cache 中跳離
+出來。
+
+  - cpu_interrupt
+
+  - cpu_exit
+
+  - tb_phys_invalidate 

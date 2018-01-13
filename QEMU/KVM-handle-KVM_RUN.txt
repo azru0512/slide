@@ -1,0 +1,24 @@
+
+
+
+  KVM_RUN --> kvm_vcpu_ioctl (kvm_main.c)
+
+                    |
+                    v
+
+              kvm_arch_vcpu_ioctl_run (x86.c)
+
+                    |
+                    v
+
+              __vcpu_run (x86.c)
+
+                    |
+                    v
+
+              vcpu_enter_guest (x86.c)
+ 
+                    |
+                    v
+
+              kvm_x86_ops->run(vcpu) (vmx_vcpu_run in vmx.c)             

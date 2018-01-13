@@ -1,0 +1,30 @@
+
+relax.o:     file format elf64-x86-64-freebsd
+
+
+Disassembly of section .text:
+
+0000000000000000 <foo>:
+   0:	55                   	push   %rbp
+   1:	48 89 e5             	mov    %rsp,%rbp
+   4:	41 57                	push   %r15
+   6:	41 56                	push   %r14
+   8:	53                   	push   %rbx
+   9:	50                   	push   %rax
+   a:	89 fb                	mov    %edi,%ebx
+   c:	e8 00 00 00 00       	callq  11 <foo+0x11>
+  11:	41 89 c6             	mov    %eax,%r14d
+  14:	44 6b fb 11          	imul   $0x11,%ebx,%r15d
+  18:	89 df                	mov    %ebx,%edi
+  1a:	e8 00 00 00 00       	callq  1f <foo+0x1f>
+  1f:	45 39 f7             	cmp    %r14d,%r15d
+  22:	7e 05                	jle    29 <foo+0x29>
+  24:	44 01 f8             	add    %r15d,%eax
+  27:	eb 03                	jmp    2c <foo+0x2c>
+  29:	0f af c3             	imul   %ebx,%eax
+  2c:	48 83 c4 08          	add    $0x8,%rsp
+  30:	5b                   	pop    %rbx
+  31:	41 5e                	pop    %r14
+  33:	41 5f                	pop    %r15
+  35:	5d                   	pop    %rbp
+  36:	c3                   	retq   

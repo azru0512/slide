@@ -1,0 +1,15 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+          \PY{p}{.}\PY{p}{.}\PY{p}{.}
+
+  \PY{n}{std}\PY{o}{:}\PY{o}{:}\PY{n}{vector}\PY{o}{\PYZlt{}}\PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Type} \PY{o}{*}\PY{o}{\PYZgt{}} \PY{n}{putsArgs}\PY{p}{;}
+  \PY{n}{putsArgs}\PY{p}{.}\PY{n}{push\PYZus{}back}\PY{p}{(}\PY{n}{builder}\PY{p}{.}\PY{n}{getInt8Ty}\PY{p}{(}\PY{p}{)}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{getPointerTo}\PY{p}{(}\PY{p}{)}\PY{p}{)}\PY{p}{;}
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{ArrayRef}\PY{o}{\PYZlt{}}\PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Type}\PY{o}{*}\PY{o}{\PYZgt{}}  \PY{n}{argsRef}\PY{p}{(}\PY{n}{putsArgs}\PY{p}{)}\PY{p}{;}
+
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{FunctionType} \PY{o}{*}\PY{n}{putsType} \PY{o}{=} 
+    \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{FunctionType}\PY{o}{:}\PY{o}{:}\PY{n}{get}\PY{p}{(}\PY{n}{builder}\PY{p}{.}\PY{n}{getInt32Ty}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n}{argsRef}\PY{p}{,} \PY{n+nb}{false}\PY{p}{)}\PY{p}{;}
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Constant} \PY{o}{*}\PY{n}{putsFunc}
+    \PY{o}{=} \PY{n}{module}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{getOrInsertFunction}\PY{p}{(}\PY{l+s}{\PYZdq{}}\PY{l+s}{puts}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{n}{putsType}\PY{p}{)}\PY{p}{;}
+
+  \PY{n}{module}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{dump}\PY{p}{(}\PY{p}{)}\PY{p}{;}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

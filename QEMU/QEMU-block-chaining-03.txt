@@ -1,0 +1,194 @@
+                 Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  由 guest binary -> TCG IR 的過程中，gen_goto_tb 會做 block chaining 的準備。
+我們先來看何時會呼叫到 gen_goto_tb。以 i386 為例，遇到 guest binary 中的條件
+分支和直接跳轉都會呼叫 gen_goto_tb (target-i386/translate.c)。這邊以條件分支
+當例子:
+
+static inline void gen_jcc(DisasContext *s, int b,
+                           target_ulong val, target_ulong next_eip)
+{
+    int l1, l2, cc_op;
+
+    cc_op = s->cc_op;
+    gen_update_cc_op(s);
+    if (s->jmp_opt) { // use direct block chaining for direct jumps
+        l1 = gen_new_label();
+        gen_jcc1(s, cc_op, b, l1);
+
+        gen_goto_tb(s, 0, next_eip); // 我猜是 taken
+  
+        gen_set_label(l1);
+        gen_goto_tb(s, 1, val); // 我猜是 not taken
+        s->is_jmp = DISAS_TB_JUMP;
+    } else {
+
+      /* 忽略不提 */
+
+    }
+}
+
+  - gen_goto_tb。強烈建議閱讀 Porting QEMU to Plan 9: QEMU Internals and Port Strategy
+    2.2.3 和 2.2.4 節，也別忘了 http://qemu.sourcearchive.com 。
+
+// tb_num 代表目前 tb block linking 分支情況。eip 代表跳轉目標。
+static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
+{
+    TranslationBlock *tb;
+    target_ulong pc;
+ 
+    // 注意! 這裡 s->cs_base + eip 代表跳轉位址。
+    pc = s->cs_base + eip; // 計算跳轉目標的 pc
+    tb = s->tb; // 目前 tb
+
+    // s->pc 代表翻譯至目前 guest binary 的所在位址。tb->pc 表示 guest binary
+    // 的起始位址。關於 block chaining 為何要有底下的限制，請見 [1][2][3]。
+    // 
+    // 滿足底下兩個條件之一，則可以做 direct block linking:
+    // 
+    // (a) 跳轉目標和目前 tb 起始的 pc 同屬一個 guest page。
+    // (b) 跳轉目標和目前翻譯到的 pc 同屬一個 guest page。
+    //
+    if ((pc & TARGET_PAGE_MASK) == (tb->pc & TARGET_PAGE_MASK) ||  - (a)
+        (pc & TARGET_PAGE_MASK) == ((s->pc - 1) & TARGET_PAGE_MASK))  { - (b)
+        // 如果 guest jump 指令和其跳轉位址同屬一個 guest page，則做 direct block linking。
+
+        tcg_gen_goto_tb(tb_num); // 生成準備做 block linking 的 TCG IR。詳情請見之後描述。
+
+        // 更新 env 的 eip，使其指向此 tb 之後欲執行指令的位址。
+        // tb_find_fast 會用 eip 查找該 TB 是否已被翻譯過。
+        gen_jmp_im(eip);
+
+        // 最終回到 QEMU tcg_qemu_tb_exec，賦值給 next_tb。
+        // 注意! tb_num 會被 next_tb & 3 取出，由此可以得知 block chaining 的方向。
+        tcg_gen_exit_tb((tcg_target_long)tb + tb_num);
+    } else {
+        /* jump to another page: currently not optimized */
+        gen_jmp_im(eip);
+        gen_eob(s);
+    }
+}
+
+  o 我們先來看上述 gen_goto_tb 生成的 TCG IR:
+
+IN:
+0x000f1e78:  je     0xf1e82
+
+OP:
+ ---- 0xf1e78
+ movi_i32 cc_op,$0xe
+ movi_i32 tmp12,$0xff
+ and_i32 tmp4,cc_dst,tmp12
+ movi_i32 tmp12,$0x0
+ brcond_i32 tmp4,tmp12,eq,$0x0
+ goto_tb $0x0             <--
+ movi_i32 tmp4,$0xf1e7a      | gen_goto_tb(s, 0, next_eip)
+ st_i32 tmp4,env,$0x20       |
+ exit_tb $0x7fb63a81e6a0  <--
+ set_label $0x0
+ goto_tb $0x1             <--
+ movi_i32 tmp4,$0xf1e82      | gen_goto_tb(s, 1, val)
+ st_i32 tmp4,env,$0x20       |
+ exit_tb $0x7fb63a81e6a1  <--
+
+  o 針對條件 (a) 和 (b) 的圖示:
+
+(a)                                (b)
+   tb->pc -->  ________               tb->pc -->  ________
+              |        |                         |        | guest page A
+              |        |                      ---------------------------
+              |        |                         |        |
+              |________|               s->pc --> |________| 
+          
+                    
+       pc -->  ________                           ________
+              |        |                         |        |
+              |        |                  pc --> |        |
+              |        |                         |        |
+              |________|                         |________|
+
+   guest page A                       guest page B 
+  -------------------------          ------------------------------------ 
+
+  o tcg_gen_goto_tb 生成 TCG IR。
+
+static inline void tcg_gen_goto_tb(int idx)
+{
+    tcg_gen_op1i(INDEX_op_goto_tb, idx);
+}
+  o tcg_out_op (tcg/i386/tcg-target.c) 將 TCG IR，goto_tb，翻成 host binary。
+    注意! 這邊利用 patch jmp 跳轉位址達成 block linking。
+
+static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
+                              const TCGArg *args, const int *const_args)
+{
+    case INDEX_op_goto_tb:
+        if (s->tb_jmp_offset) {
+            /* direct jump method */
+            tcg_out8(s, OPC_JMP_long); /* jmp im */
+
+            // 紀錄將來要 patch 的地方，args[0] = 0/1。
+            // s->code_ptr - s->code_buf 即是 jmp im 裡的 im 在此 tb 的偏移量。
+            s->tb_jmp_offset[args[0]] = s->code_ptr - s->code_buf;
+
+            // jmp 的參數為 jmp 下一個指令與目標的偏移量。
+            // 如果還沒做 block chaining，則 jmp 0 代表 fall through。
+            tcg_out32(s, 0);
+        } else {
+
+            /* 在此忽略 */
+
+        }
+        // 留待將來 "reset" direct jump，亦即 block unchaining 之用。
+        s->tb_next_offset[args[0]] = s->code_ptr - s->code_buf;
+        break;
+}
+
+  o
+
+IN:
+0x000f1e78:  je     0xf1e82
+
+OUT:
+0x41e277d6:  je     0x41e277f9
+0x41e277dc:  jmpq   0x41e277e1           // jmp 0  <-- 將來 block chaining 要 patch 的點。
+0x41e277e1:  mov    $0xf1e7a,%ebp        
+0x41e277e6:  mov    %ebp,0x20(%r14)      // env->eip = 0xf1e7a
+0x41e277ea:  mov    $0x7fb63a81e6a0,%rax // return tb + 0
+0x41e277f4:  jmpq   0x12daf16            // jmp tb_ret_addr
+0x41e277f9:  jmpq   0x41e277fe           // jmp 0
+0x41e277fe:  mov    $0xf1e82,%ebp
+0x41e27803:  mov    %ebp,0x20(%r14)      // env->eip = 0xf1e82  <--  返回 next_tb = tb + 1，並以 guest pc 0xf1e82
+0x41e27807:  mov    $0x7fb63a81e6a1,%rax // return tb + 1          | 查找有無以翻譯過的 tb，試圖做 next_tb -> tb 的 
+0x41e27811:  jmpq   0x12daf16            // jmp tb_ret_addr     <--  block chaining。
+
+  回答上一篇最後留下的問題。在還未 patch code cache 中的分支跳轉指令的跳轉位址，
+它會 fall through，還記得 jmp 0 嗎? 我這邊在列出 gen_goto_tb 的部分內容:
+
+        tcg_gen_goto_tb(tb_num);
+
+        // Fall through
+
+        // 更新 env 的 eip，使其指向此 tb 之後欲執行指令的位址。
+        // tb_find_fast 會用 eip 查找該 TB 是否已被翻譯過。
+        gen_jmp_im(eip);
+
+        // 最終回到 QEMU tcg_qemu_tb_exec，賦值給 next_tb。
+        // 注意! tb_num 會被 next_tb & 3 取出，由此可以得知 block chaining 的方向。
+        tcg_gen_exit_tb((tcg_target_long)tb + tb_num);
+
+目前執行的 tb 會賦值給 next_tb (末兩位編碼 block chaining 的方向)。等待下一次迴圈，
+tb_find_fast 回傳 next_tb 的下一個 tb。
+
+  if (next_tb != 0 && tb->page_addr[1] == -1) {
+      // 這邊利用 TranlationBlock 指針的最低有效位後兩位指引 block chaining 的方向。
+      // next_tb -> tb
+      tb_add_jump((TranslationBlock *)(next_tb & ~3), next_tb & 3, tb);
+  }
+
+That's it! That's how direct block chaining is done in QEMU, I think... :-)
+
+[1] http://lists.nongnu.org/archive/html/qemu-devel/2011-08/msg02249.html
+[2] http://lists.gnu.org/archive/html/qemu-devel/2011-09/msg03065.html
+[3] http://lists.gnu.org/archive/html/qemu-devel/2012-04/msg01032.html

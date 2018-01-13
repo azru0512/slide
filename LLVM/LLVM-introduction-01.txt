@@ -1,0 +1,119 @@
+               Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+                                   前言
+  
+  LLVM 全名為 Low Level Virtual Machine。各位千萬不可被它的名稱所誤導，它跟虛擬
+機器 (virtual machine) 基本上沒有關係。它是一個編譯器基礎設施。換句話說，它可以
+用來建立一個編譯器。雖然有些計畫，如 VMKit，使用 LLVM 建立類似於 JVM 的虛擬機器
+，但是 LLVM 跟虛擬機器沒有關係。在研究所時代，我就有接觸過 LLVM。畢業後做的工作
+仍與 LLVM 有關。由於我本身有點編譯器的背景，在介紹 LLVM 的同時，我希望能盡可能的
+將編譯器相關的知識融入進去。希望各位不吝指教。
+
+0. 建置環境 
+
+  我先介紹如何建置 LLVM。
+
+1. 使用 llvm-top。llvm-top 是一個鮮為人知的小工具。注意! 它抓取的是 svn 版本，
+   而非 release 版本。詳細的使用方法請見 llvm-top/README.txt。底下是使用範例:
+
+---
+$ svn co http://llvm.org/svn/llvm-project/llvm-top/trunk/ llvm-top
+$ cd llvm-top
+$ ./build OPTIMIZED=1 PREFIX=$INSTALL llvm
+---
+
+2. 使用 configure。
+
+---
+$ wget http://llvm.org/releases/2.9/llvm-2.9.tgz; tar xvf llvm-2.9.tgz
+$ mkdir build; cd build
+$ ../llvm-2.9/configure --prefix=$INSTALL --enable-optimized
+$ make install
+$ export PATH=$INSTALL/bin:$PATH
+---
+
+3. 使用 CMake。
+
+---
+$ wget http://llvm.org/releases/2.9/llvm-2.9.tgz; tar xvf llvm-2.9.tgz
+$ mkdir build; cd build
+$ CFLAGS=-fno-strict-aliasing CXXFLAGS=-fno-strict-aliasing cmake -i ../llvm-2.9
+
+  ... 設定 ...
+
+$ make intall
+$ export PATH=$INSTALL/bin:$PATH
+---
+
+  對於一般平台，LLVM 提供預編譯好的執行檔，抓下來直接使用亦可。
+
+1. LLVM IR
+
+  這邊簡單複習一下編譯器的流程。前端 (front end) 將代碼轉成中介碼 (intermediate
+representation，簡稱 IR)，後端將 (back end) 將中介碼轉成二進制碼 (binary)。LLVM
+做為一個編譯器基礎設施，基本上只等同 2/3 個編譯器。它還需要前端 (算 1/3 個編譯
+器) 將代碼轉成 LLVM IR，之後再進行跟底層架構無關/相關的優化，最後生成二進制碼。
+
+  LLVM IR 有底下三種形式:
+
+  - in-memory compiler IR
+  - on-disk bitcode representation
+  - human readable assembly language representation
+
+這樣說太模糊了，我們馬上編譯一個小程式來看看。:-)
+
+---
+$ cd llvm-2.9/example/ModuleMaker
+$ g++ ModuleMaker.cpp `llvm-config --cxxflags --ldflags --libs all` -o ModuleMaker
+$ ModuleMaker > module.bc
+# 將 bitcode 反匯編成 LLVM human readable assembly
+$ llvm-dis module.bc
+# 讓 vim 能夠高亮顯示 LLVM IR
+$ cp llvm-2.9/utils/vim/llvm.vim $HOME/.vim/syntax/
+$ vim module.ll
+; ModuleID = 'module.bc'
+
+define i32 @main() {
+EntryBlock:
+  %addresult = add i32 2, 3
+  ret i32 %addresult
+}
+---
+
+  一般來說，*.bc 存放的是 "on-disk bitcode representation"; *.ll 存放的是 "human
+readable assembly language representation"。在 LLVM 內部處理的就是 "in-memory
+compiler IR"。
+
+  就我所知，LLVM 最被廣為使用的方式，就是生成 LLVM IR，再交由其後端生成二進制碼。
+Module 是裝載 LLVM IR 的容器 (container)，其中包含函式 (function)、全域變數 (
+global variable) 和符號表項 (symbol table entry)。一般會在 Module 中建立數個函式
+，函式中有數個基本塊 (basic block)，最後在基本塊中填入 LLVM IR。ModuleMaker.cpp
+中的註解寫得很完整，基本上就是前述的流程。
+
+  LLVM 一個常被宣傳的特色就是 JIT (Just In Time)。我們還是來看個例子。
+
+---
+$ cd llvm-2.9/examples/HowToUseJIT
+$ g++ HowToUseJIT.cpp `llvm-config --cxxflags --ldflags --libs all` -o HowToUseJIT
+$ ./HowToUseJIT
+---
+
+  HowToUseJIT.cpp 的前半部就是在建立一個 Module，內含兩個函式: foo 和 add1。建立好
+Module 之後，再針對這個 Module 生成 ExecutionEngine，即是 JIT。透過 ExecutionEngine
+將該 Module 的某個函式動態編譯成 binary 並執行，最後傳回執行後的結果。
+
+最後簡單介紹一下 example 目錄底下其它的範例。
+
+  - Fibonacci: 展示如何於 Module 中生成遞迴函式計算 fibonacci。
+  - BrainF: 實現程式語言 Brainfuck [1][2][3]。
+  - Kaleidoscope: [4] 教程上所展示的範例語言。
+  - OCaml-Kaleidoscope: [4] 教程上所展示的範例語言。
+  - ParallelJIT: 展示多個執行緒可同時執行 JIT。 
+  - ExceptionDemo: 展示 LLVM 如何處理 C++ 的例外 (exception) [5][6]。
+
+[1] http://www.profibing.de/lisp/brainfuck/Llvm.pdf
+[2] http://blog.linux.org.tw/~jserv/archives/2011/04/build_programmi_1.html
+[3] http://blog.linux.org.tw/~jserv/archives/2011/04/_llvm_brainfuck.html
+[4] http://llvm.org/docs/tutorial/
+[5] http://llvm.org/docs/ExceptionHandling.html
+[6] http://llvm.org/devmtg/2011-09-16/EuroLLVM2011-ExceptionHandling.pdf

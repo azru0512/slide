@@ -1,0 +1,9 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k}{let} \PY{n}{Predicates} \PY{o}{=} \PY{p}{[}\PY{n}{isInteger}\PY{p}{]} \PY{n}{in}
+  \PY{k}{def} \PY{n}{ADDrc} \PY{o}{:} \PY{n}{RcInstr}\PY{o}{\PYZlt{}}\PY{l+m+mh}{0x8b}\PY{p}{,} \PY{c+c1}{// op1}
+                      \PY{l+m+mh}{0x00}\PY{p}{,} \PY{c+c1}{// op2}
+                      \PY{p}{(}\PY{n}{outs} \PY{n}{DR}\PY{o}{:}\PY{err}{\PYZdl{}}\PY{n}{c}\PY{p}{)}\PY{p}{,} \PY{c+c1}{// outs}
+                      \PY{p}{(}\PY{n}{ins} \PY{n}{DR}\PY{o}{:}\PY{err}{\PYZdl{}}\PY{n}{a}\PY{p}{,} \PY{n}{s9imm}\PY{o}{:}\PY{err}{\PYZdl{}}\PY{n}{const9}\PY{p}{)}\PY{p}{,} \PY{c+c1}{// ins}
+                      \PY{l+s}{\PYZdq{}}\PY{l+s}{addnt\PYZdl{}c, \PYZdl{}a, \PYZdl{}const9}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{c+c1}{// asmString}
+                      \PY{p}{[}\PY{p}{(}\PY{n}{set} \PY{n}{DR}\PY{o}{:}\PY{err}{\PYZdl{}}\PY{n}{c}\PY{p}{,} \PY{p}{(}\PY{n}{add} \PY{n}{DR}\PY{o}{:}\PY{err}{\PYZdl{}}\PY{n}{a}\PY{p}{,} \PY{n}{immSExt9}\PY{o}{:}\PY{err}{\PYZdl{}}\PY{n}{const9}\PY{p}{)}\PY{p}{)}\PY{p}{]}\PY{o}{\PYZgt{}}\PY{p}{;}
+\end{Verbatim}

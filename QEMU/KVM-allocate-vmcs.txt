@@ -1,0 +1,26 @@
+  KVM_CREATE_VCPU --> kvm_vm_ioctl (kvm_main.c)
+
+                           |
+                           v
+
+                      kvm_vm_ioctl_create_vcpu (kvm_main.c)
+
+                           |
+                           v
+
+                      kvm_arch_vcpu_create (x86.c)
+
+                           |
+                           v
+
+                      kvm_x86_ops->vcpu_create (vmx_create_vcpu in vmx.c)
+
+                           |
+                           v
+
+                      alloc_vmcs (vmx.c) ---> vmx_vcpu_setup (vmx.c)
+
+                           |                        |
+                           v                        v
+
+                      alloc_vmcs_cpu (vmx.c)  vmcs_writel (vmx.c)

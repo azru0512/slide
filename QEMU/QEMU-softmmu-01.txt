@@ -1,0 +1,39 @@
+3.
+
+// tcg/i386/tcg-target.c
+
+#include "../../softmmu_defs.h"
+
+// target-i386/op_helper.c defines __ld*_mmu body 
+// #define MMUSUFFIX _mmu
+// #define SHIFT 0
+// #include "softmmu_template.h"
+static void *qemu_ld_helpers[4] = {
+    __ldb_mmu,
+    __ldw_mmu,
+    __ldl_mmu,
+    __ldq_mmu,
+};
+
+static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args,
+                            int opc)
+{
+
+}
+
+
+// TCG IR -> host binary
+static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
+                              const TCGArg *args, const int *const_args)
+{
+    case INDEX_op_qemu_ld8u:
+        tcg_out_qemu_ld(s, args, 0);
+        break;
+}
+
+// guest binary -> TCG IR (qemu_ld/qemu_st)
+// tcg/tcg-op.h
+static inline void tcg_gen_qemu_ld8u(TCGv ret, TCGv addr, int mem_index)
+{
+    tcg_gen_op3i_i32(INDEX_op_qemu_ld8u, ret, addr, mem_index);
+}

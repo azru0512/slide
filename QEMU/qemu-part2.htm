@@ -1,0 +1,249 @@
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<base href="http://vm-kernel.org/blog/2009/07/10/qemu-internal-part-2-softmmu/"><div style="background:#fff;border:1px solid #999;margin:-1px -1px 0;padding:0;"><div style="background:#ddd;border:1px solid #999;color:#000;font:13px arial,sans-serif;font-weight:normal;margin:12px;padding:8px;text-align:left">這是 Google 對 <a href="http://vm-kernel.org/blog/2009/07/10/qemu-internal-part-2-softmmu/" style="text-decoration:underline;color:#00c">http://vm-kernel.org/blog/2009/07/10/qemu-internal-part-2-softmmu/</a> 的快取。 這是該網頁於 2011年7月14日 14:59:21 GMT 顯示時的快照。 在此期間，<a href="http://vm-kernel.org/blog/2009/07/10/qemu-internal-part-2-softmmu/" style="text-decoration:underline;color:#00c">目前網頁</a>可能已經變更。 <a href="http://www.google.com/intl/zh-TW/help/features_list.html#cached" style="text-decoration:underline;color:#00c">瞭解更多資訊</a><br><br><div style="float:right"><a href="http://webcache.googleusercontent.com/search?q=cache:gN4BYz-kZykJ:vm-kernel.org/blog/2009/07/10/qemu-internal-part-2-softmmu/+qemu+internal&amp;hl=zh-TW&strip=0" style="text-decoration:underline;color:#00c">完整版</a></div>
+<div>這些搜尋字詞已反白標明： <span style="background:#ffff66;color:black;font-weight:bold">qemu</span>&nbsp;<span style="background:#a0ffff;color:black;font-weight:bold">internal</span>&nbsp;&nbsp;</div></div></div><div style="position:relative">
+<html>
+<div id="wrapper">
+<head><META http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>qemu internal part 2: softmmu</title>
+
+
+
+
+    <ul id = "catlist">
+    </ul>
+
+
+<hr>
+
+</head>
+
+<body>
+<div id="container">
+
+
+<h1 id="toc_1"><b style="color:black;background-color:#ffff66">qemu</b> <b style="color:black;background-color:#a0ffff">internal</b> part 2: softmmu</h1>
+
+<p>
+<b style="color:black;background-color:#ffff66">Qemu</b> uses softmmu to accelerate the process of finding the mapping between guest physical address and host virtual address and the mapping between guest I/O region and <b style="color:black;background-color:#ffff66">qemu</b> I/O emulation functions. In this article, I assume the guest page table size is 4K.
+</p>
+
+<h2 >1. the two level guest physical page descriptor table</h2>
+
+<p>
+<b style="color:black;background-color:#ffff66">Qemu</b> uses a two level guest physical page descriptor table to maintain the guest memory space and MMIO space. The table is pointed by l1_phys_map. Bits [31:22] is used to index first level entry and bits [21:12] is used to index the second level entry. The entry of the second level table is PhysPageDesc.
+</p>
+
+<pre>
+exec.c
+
+146 typedef struct PhysPageDesc {
+147     /* offset in host memory of the page + io_index in the low bits */
+148     ram_addr_t phys_offset;
+149     ram_addr_t region_offset;
+150 } PhysPageDesc;
+</pre>
+
+<p>
+If the memory region is RAM, then the bits [31:12] of phys_offset means the offset of this page in emulated physical memory. If the memory region is memory mapped I/O, then the bits of [11:3] of phys_offset means the index in io_mem_write/io_mem_read array. When accessing this memory region, the functions in io_mem_write/io_mem_read of index phys_offset will be called.
+</p>
+
+<h2 >2. register the guest physical memory</h2>
+
+<p>
+Function cpu_register_physical_memory is used to register a guest memory region. If phys_offset is IO_MEM_RAM then it means this region is guest RAM space. If the phys_offset >IO_MEM_ROM, then it means this memory region is MMIO space.
+</p>
+
+<pre>
+898 static inline void cpu_register_physical_memory(target_phys_addr_t start_addr,
+899                                                 ram_addr_t size,
+900                                                 ram_addr_t phys_offset)
+901 {
+902     cpu_register_physical_memory_offset(start_addr, size, phys_offset, 0);
+903 }
+</pre>
+
+<p>
+Function cpu_register_physical_memory_offset will first find the PhysPageDesc in table l1_phys_map using the given guest physical address. If finding the entry, <b style="color:black;background-color:#ffff66">qemu</b> will update the entry. If not finding the entry, then <b style="color:black;background-color:#ffff66">qemu</b> creates a new entry and updates its value and insert this entry to the table at last.
+</p>
+
+<p>
+In malta emulation, the following is the code to register malta RAM space.
+</p>
+<pre>
+hw/mips_malta.c
+
+811     cpu_register_physical_memory(0, ram_size, IO_MEM_RAM);
+</pre>
+
+<h2>3. register the mmio space</h2>
+
+<p>
+Before registering mmio space using cpu_register_physical_memory, <b style="color:black;background-color:#ffff66">qemu</b> uses the function cpu_register_io_memory to register the I/O emulation functions to array io_mem_write/io_mem_read.
+</p>
+<pre>
+exec.c
+
+2851 int cpu_register_io_memory(int io_index,
+2852                            CPUReadMemoryFunc **mem_read,
+2853                            CPUWriteMemoryFunc **mem_write,
+2854                            void *opaque)
+</pre>
+
+<p>
+This function will return the index in array io_mem_write/io_mem_read and this index will be passed to function cpu_register_physical_memory via parameter phys_offset.
+</p>
+<pre>
+hw/mips_malta.c
+
+malta = cpu_register_io_memory(0, malta_fpga_read,
+                                   malta_fpga_write, s);
+
+cpu_register_physical_memory(base, 0x900, malta);
+</pre>
+
+<h2>4. softmmu</h2>
+
+<p>
+Given the guest virtual address, how does <b style="color:black;background-color:#ffff66">qemu</b> find the corresponding host virtual address? First <b style="color:black;background-color:#ffff66">qemu</b> needs to translate the guest virtual address to guest physical address. Then <b style="color:black;background-color:#ffff66">qemu</b> needs to find the PhysPageDesc entry in table l1_phys_map and get the phys_offset. At last <b style="color:black;background-color:#ffff66">qemu</b> should add phys_offset to phys_ram_base to get the host virtual address.
+</p>
+<p>
+<b style="color:black;background-color:#ffff66">Qemu</b> uses a softmmu model to speed up this process. Its main idea is storing the offset of guest virtual address to host virtual address in a TLB table. When translating the guest virtual address to host virtual address, it will search this TLB table firstly. If there is an entry in the table, then <b style="color:black;background-color:#ffff66">qemu</b> can add this offset to guest virtual address to get the host virtual address directly. Otherwise, it needs to search the l1_phys_map table and then fill the corresponding entry to the TLB table. The index of this TLB table is bits [19:12] of guest virtual address and there is no asid field in tlb entry. This means the TLB table needs to be flushed in process switch!
+</p>
+<p>
+This TLB table idea is just like the most traditional hardware TLB. However, to MIPS cpu, there is another mmu model in <b style="color:black;background-color:#ffff66">qemu</b>. Unlike x86 cpu, MIPS does NOT care about hardware page table. Instead it uses hardware TLB which is NOT transparent to software. Maybe It is another topic I will explain in another article. What we need to understand here is that the softmmu model in this article is not the mmu model of MIPS cpu itself.
+</p>
+<p>
+Moreover, besides helping speed up the process of translating guest virtual address to host virtual address, this softmmu model can speed up the process of dispatching I/O emulation functions according to guest virtual address too. In this case, the idex of I/O emulation functions in io_mem_write/io_mem_read is stored in iotlb.
+</p>
+<p>
+The format of TLB entry is as flowing:
+</p>
+<pre>
+cpu-defs.h
+
+176     CPUTLBEntry tlb_table[NB_MMU_MODES][CPU_TLB_SIZE];                  \
+177     target_phys_addr_t iotlb[NB_MMU_MODES][CPU_TLB_SIZE];
+
+108 typedef struct CPUTLBEntry {
+109     /* bit TARGET_LONG_BITS to TARGET_PAGE_BITS : virtual address
+110        bit TARGET_PAGE_BITS-1..4  : Nonzero for accesses that should not
+111                                     go directly to ram.
+112        bit 3                      : indicates that the entry is invalid
+113        bit 2..0                   : zero
+114     */
+115     target_ulong addr_read;
+116     target_ulong addr_write;
+117     target_ulong addr_code;
+124     target_phys_addr_t addend;
+131 } CPUTLBEntry;
+</pre>
+<p>
+Field addr_read/write/code stores the guest virtual address for TLB entry. It is the tag of this entry. Filed addend is the offset of host virtual address to guest virtual address. We can add this value to guest virtual address to get the host virtual address.
+</p>
+<pre>
+addend = host_virtual_address – guest_virtual_address
+
+host_virtual_address = phys_ram_base(<b style="color:black;background-color:#ffff66">qemu</b> variable) + guest_physical_address – guest_physical_address_base(0 in MIPS)
+</pre>
+
+<p>
+The iotlb stores the index of I/O emulation function in io_mem_write/io_mem_read.
+</p>
+<p>
+Function __ldb_mmu/__ldl_mmu/__ldw_mmu is used to translating the guest virtual address to host virtual address or dispatching guest virtual address to I/O emulation functions.
+</p>
+<pre>
+softmmu_template.h
+
+86 DATA_TYPE REGPARM glue(glue(__ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
+87                                                       int mmu_idx)
+88 {
+89     DATA_TYPE res;
+90     int index;
+91     target_ulong tlb_addr;
+92     target_phys_addr_t addend;
+93     void *retaddr;
+94
+95     /* test if there is match for unaligned or IO access */
+96     /* XXX: could done more in memory macro in a non portable way */
+97     index = (addr >> TARGET_PAGE_BITS) & (CPU_TLB_SIZE - 1);
+98  redo:
+99     tlb_addr = env->tlb_table[mmu_idx][index].ADDR_READ;
+100     if ((addr & TARGET_PAGE_MASK) == (tlb_addr & (TARGET_PAGE_MASK | TLB_INVALID_MASK))) {
+101         if (tlb_addr & ~TARGET_PAGE_MASK) {
+102             /* IO access */
+103             if ((addr & (DATA_SIZE - 1)) != 0)
+104                 goto do_unaligned_access;
+105             retaddr = GETPC();
+106             addend = env->iotlb[mmu_idx][index];
+107             res = glue(io_read, SUFFIX)(addend, addr, retaddr);
+108         } else if (((addr & ~TARGET_PAGE_MASK) + DATA_SIZE - 1) >= TARGET_PAGE_SIZE) {
+109             /* slow unaligned access (it spans two pages or IO) */
+110         do_unaligned_access:
+111             retaddr = GETPC();
+112 #ifdef ALIGNED_ONLY
+113             do_unaligned_access(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
+114 #endif
+115             res = glue(glue(slow_ld, SUFFIX), MMUSUFFIX)(addr,
+116                                                          mmu_idx, retaddr);
+117         } else {
+118             /* unaligned/aligned access in the same page */
+119 #ifdef ALIGNED_ONLY
+120             if ((addr & (DATA_SIZE - 1)) != 0) {
+121                 retaddr = GETPC();
+122                 do_unaligned_access(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
+123             }
+124 #endif
+125             addend = env->tlb_table[mmu_idx][index].addend;
+126             res = glue(glue(ld, USUFFIX), _raw)((uint8_t *)(long)(addr+addend));
+127         }
+128     } else {
+129         /* the page is not in the TLB : fill it */
+130         retaddr = GETPC();
+131 #ifdef ALIGNED_ONLY
+132         if ((addr & (DATA_SIZE - 1)) != 0)
+133             do_unaligned_access(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
+134 #endif
+135         tlb_fill(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
+136         goto redo;
+137     }
+138     return res;
+139 }
+</pre>
+<p>
+In this function, it will get the index of TLB table and compare the guest virtual address with the address stored in this tlb entry(line 97-100). If these two addresses match, it means this guest virtual address hits the tlb entry. Then <b style="color:black;background-color:#ffff66">qemu</b> will determine this virtual address is a MMIO address or RAM address. If it is a MMIO address, get the index of IO emulation functions from env->iotlb and call these functions(line 103-117). If it is a RAM space, add the guest virtual address to addend to get the host virtual address(line 118-128). If there is no matched tlb entry, then fietch the entry from table l1_phys_map and insert the entry to tlb table(line 135).
+</pre>
+
+<h2>5. an example</h2>
+<p>
+
+When fetching code from guest memory, the whole code path is as flowing:
+</p>
+<pre>
+cpu_exec->tb_find_fast->tb_find_slow->get_phys_addr_code
+->(if tlb not match)ldub_code(softmmu_header.h)->__ldl_mmu(softmmu_template.h)
+->tlb_fill->cpu_mips_handle_mmu_fault->tlb_set_page->tlb_set_page_exec
+</pre>
+
+
+<p>
+2009/07/10(YYYY/MM/DD) Category:<a href="/blog/category.html?cat=QEMU"><b style="color:black;background-color:#ffff66">QEMU</b></a>
+</br>
+Tag: <b style="color:black;background-color:#ffff66">QEMU</b>, MIPS
+</p>
+
+</div>
+
+<div id="disqus_thread"></div>
+
+Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+<a href="http://disqus.com" class="dsq-brlink">blog comments powered by Disqus</a>
+
+
+
+
+    <p>2008-2011</p><p> Theme copied from <a href="http://blog.hotoo.me/index.html">闲耘™(@hotoo)</a>with little changes.</p>
+
+
+</body></html>
+START <b style="color:black;background-color:#ffff66">qemu</b> <b style="color:black;background-color:#a0ffff">internal</b> part 2: softmmu,/blog/2009/07/10/<b style="color:black;background-color:#ffff66">qemu</b>-<b style="color:black;background-color:#a0ffff">internal</b>-part-2-softmmu/,2009/07/10,<b style="color:black;background-color:#ffff66">QEMU</b> END

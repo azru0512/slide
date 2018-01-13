@@ -1,0 +1,20 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k}{define} \PY{k}{i32} \PY{n+nv+vg}{@fib}\PY{p}{(}\PY{k}{i32} \PY{n+nv}{\PYZpc{}x}\PY{p}{)} \PY{k}{nounwind} \PY{k}{uwtable} \PY{p}{\PYZob{}}
+\PY{n+nl}{entry:}
+  \PY{p}{.}\PY{p}{.}\PY{p}{.}
+  \PY{k}{br} \PY{k}{i1} \PY{n+nv}{\PYZpc{}cmp}\PY{p}{,} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}if.then}\PY{p}{,} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}if.end}
+
+\PY{n+nl}{if.then:}    \PY{c}{; preds = \PYZpc{}entry}
+  \PY{k}{store} \PY{k}{i32} \PY{l+m}{1}\PY{p}{,} \PY{k}{i32}\PY{p}{*} \PY{n+nv}{\PYZpc{}retval}
+  \PY{k}{br} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}return}
+
+\PY{n+nl}{if.end:}    \PY{c}{; preds = \PYZpc{}entry}
+  \PY{p}{.}\PY{p}{.}\PY{p}{.}
+  \PY{k}{store} \PY{k}{i32} \PY{n+nv}{\PYZpc{}add}\PY{p}{,} \PY{k}{i32}\PY{p}{*} \PY{n+nv}{\PYZpc{}retval}
+  \PY{k}{br} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}return}
+
+\PY{n+nl}{return:}    \PY{c}{; preds = \PYZpc{}if.end, \PYZpc{}if.then}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}3} \PY{p}{=} \PY{k}{load} \PY{k}{i32}\PY{p}{*} \PY{n+nv}{\PYZpc{}retval}
+  \PY{k}{ret} \PY{k}{i32} \PY{n+nv+nvAnonymous}{\PYZpc{}3}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

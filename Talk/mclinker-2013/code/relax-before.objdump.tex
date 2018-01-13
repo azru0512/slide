@@ -1,0 +1,15 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{l+m+mh}{0000000000000000} \PY{p}{\PYZlt{}}\PY{n+nf}{foo}\PY{p}{\PYZgt{}:}
+  \PY{n+nl}{1a:}	\PY{l+m+mh}{e8 00 00 00 00 }      	\PY{n+nf}{callq}  \PY{l+m+mh}{1f} \PY{p}{\PYZlt{}}\PY{n+no}{foo}\PY{p}{+}\PY{l+m+mi}{0x1f}\PY{p}{\PYZgt{}}
+  \PY{n+nl}{1f:}	\PY{l+m+mh}{45 39 f7 }            	\PY{n+nf}{cmp}    \PY{n+nv}{\PYZpc{}r14d}\PY{p}{,}\PY{n+nv}{\PYZpc{}r15d}
+  \PY{n+nl}{22:}	\PY{l+m+mh}{7e 05 }               	\PY{n+nf}{jle}    \PY{l+m+mh}{29} \PY{p}{\PYZlt{}}\PY{n+no}{foo}\PY{p}{+}\PY{l+m+mi}{0x29}\PY{p}{\PYZgt{}}
+  \PY{n+nl}{24:}	\PY{l+m+mh}{44 01 f8 }            	\PY{n+nf}{add}    \PY{n+nv}{\PYZpc{}r15d}\PY{p}{,}\PY{n+nv}{\PYZpc{}eax}
+  \PY{n+nl}{27:}	\PY{l+m+mh}{eb 03 }               	\PY{n+nf}{jmp}    \PY{l+m+mh}{2c} \PY{p}{\PYZlt{}}\PY{n+no}{foo}\PY{p}{+}\PY{l+m+mi}{0x2c}\PY{p}{\PYZgt{}}
+  \PY{n+nl}{29:}	\PY{l+m+mh}{0f af c3 }            	\PY{n+nf}{imul}   \PY{n+nv}{\PYZpc{}ebx}\PY{p}{,}\PY{n+nv}{\PYZpc{}eax}
+  \PY{n+nl}{2c:}	\PY{l+m+mh}{48 83 c4 08 }         	\PY{n+nf}{add}    \PY{n+no}{\PYZdl{}0x8}\PY{p}{,}\PY{n+nv}{\PYZpc{}rsp}
+  \PY{n+nl}{30:}	\PY{l+m+mh}{5b }                  	\PY{n+nf}{pop}    \PY{n+nv}{\PYZpc{}rbx}
+  \PY{n+nl}{31:}	\PY{l+m+mh}{41 5e }               	\PY{n+nf}{pop}    \PY{n+nv}{\PYZpc{}r14}
+  \PY{n+nl}{33:}	\PY{l+m+mh}{41 5f }               	\PY{n+nf}{pop}    \PY{n+nv}{\PYZpc{}r15}
+  \PY{n+nl}{35:}	\PY{l+m+mh}{5d }                  	\PY{n+nf}{pop}    \PY{n+nv}{\PYZpc{}rbp}
+  \PY{n+nl}{36:}	\PY{l+m+mh}{c3 }                  	\PY{n+nf}{retq}   
+\end{Verbatim}

@@ -1,0 +1,279 @@
+                 Copyright (c) 2012 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  我們先來看 QEMU 這一端。QEMU 中 KVM 相關的代碼大部分都放在 kvm-all.c。
+QEMU 會替每一個虛擬 CPU (VCPU) 維護一個 CPUState 的資料結構。在引入 KVM
+之後，QEMU 透過在 CPU_COMMON 這個巨集 (cpu-defs.h) 裡在 CPUState 裡面加了
+幾個 KVM 需要的欄位:
+
+#define CPU_COMMON
+    struct KVMState *kvm_state;                                         \
+    struct kvm_run *kvm_run;                                            \
+    int kvm_fd; // VCPU fd                                              \
+    int kvm_vcpu_dirty;
+ 
+KVMState 紀錄整個客戶機相關的資訊，包括開啟 /dev/kvm 得到的 KVM fd 和 
+代表客戶機的 VM fd。
+
+struct KVMState
+{
+    KVMSlot slots[32];
+    int fd;            // KVM fd
+    int vmfd;          // VM fd
+
+    ... 略 ...
+
+}
+
+kvm_run (linux-headers/linux/kvm.h) 是從 Linux 代碼拷貝過來的資料結構，基本上
+它會記錄 VCPU 離開非根模式回到 KVM/QEMU 的原因，例如: IO 或是特權指令需要模擬。
+
+KVMSlot 涉及到 QEMU/KVM 如何分配客戶機物理內存。這裡只簡單描述一下，不深入探討。
+前面講到客戶機是位在 QEMU 裡面，QEMU 會將自己的虛擬內存分配給客戶機作為其物理內存。
+
+
+  GVA -----------> GPA ------------> HVA -------------> HPA
+       Guest OS            QEMU              Host OS
+      page table          KVMSlot           page table
+
+
+  GVA: Guest Virtual Address，客戶機虛擬位址。
+  GPA: Guest Physical Address，客戶機物理位址。
+  HVA: Host Virtual Address，宿主機虛擬位址。
+  HPA: Host Physical Address，宿主機物理位址。
+
+在不啟用 KVM，僅使用 TCG 的情況下，仍舊是由 QEMU 將自己的虛擬內存分配給客戶機作
+為其物理內存，差別只在於 QEMU 並不會將 GPA -> HVA 映射告知宿主機作業系統。宿主機
+作業系統無法將 GPA -> HVA -> HPA 縮減成 GPA -> HPA 並利用硬體對內存虛擬化的支援。
+關於內存虛擬化的部分，在以後會加以詳述。在有了前述知識後，我僅針對 KVMSlot 做一
+點註解。
+
+typedef struct KVMSlot
+{
+    target_phys_addr_t start_addr; // GPA
+    ram_addr_t memory_size;
+    void *ram;                     // HVA
+    int slot;
+    int flags;
+} KVMSlot;
+
+  我們開始來看 QEMU 的流程。進入點位在 main (vl.c)。
+
+  1. main (vl.c) 會呼叫 configure_accelerator 檢查使用者是否選用 KVM。
+
+int main(int argc, char **argv, char **envp)
+{
+    ... 略 ...
+ 
+    /* init the memory */
+    if (ram_size == 0) {
+        ram_size = DEFAULT_RAM_SIZE * 1024 * 1024;
+    }
+ 
+    configure_accelerator();
+ 
+    qemu_init_cpu_loop();
+    if (qemu_init_main_loop()) {
+        fprintf(stderr, "qemu_init_main_loop failed\n");
+        exit(1);
+    }
+ 
+    ... 略 ...
+}
+  
+  2. 如果使用者選用 KVM (-enable-kvm)，會調用 kvm_init (kvm-all.c)
+     初始化。預設是初始化 TCG 相關資料結構，以 binary translation
+     的方式運行客戶機。
+
+int kvm_init(void)
+{
+    KVMState *s;
+ 
+    // slot 是用來記錄客戶機物理位址與 QEMU 虛擬位址的映射。
+    for (i = 0; i < ARRAY_SIZE(s->slots); i++) {
+        s->slots[i].slot = i;
+    }
+ 
+    // 開啟 /dev/kvm 取得 KVM fd。
+    s->fd = qemu_open("/dev/kvm", O_RDWR);
+    // 透過 ioctl 操作 /dev/kvm 取得 VM fd。
+    s->vmfd = kvm_ioctl(s, KVM_CREATE_VM, 0);
+ 
+    kvm_state = s; // kvm_state 為一全域變數。
+    memory_listener_register(&kvm_memory_listener, NULL);
+}
+
+  3. 根據運行模式是 TCG 或是 KVM，qemu_init_vcpu (cpus.c) 調用對應的
+     初始化函式。我們這裡只看 qemu_kvm_start_vcpu。
+
+void qemu_init_vcpu(void *_env)
+{
+    CPUArchState *env = _env;
+ 
+    env->nr_cores = smp_cores;
+    env->nr_threads = smp_threads;
+    env->stopped = 1;
+    if (kvm_enabled()) {
+        qemu_kvm_start_vcpu(env);
+    } else if (tcg_enabled()) {
+        qemu_tcg_init_vcpu(env);
+    } else {
+        qemu_dummy_start_vcpu(env);
+    }
+}
+
+  4. 每一個 VCPU 在宿主機上都是以一個執行緒 (thread) 來執行。
+     qemu_kvm_start_vcpu 要做的就是替每一個 VCPU (env) 建立
+     一個執行緒，並指定函式交給該執行緒執行。
+ 
+static void qemu_kvm_start_vcpu(CPUArchState *env)
+{
+    env->thread = g_malloc0(sizeof(QemuThread));
+    env->halt_cond = g_malloc0(sizeof(QemuCond));
+    qemu_cond_init(env->halt_cond);
+    qemu_thread_create(env->thread, qemu_kvm_cpu_thread_fn, env,
+                       QEMU_THREAD_JOINABLE);
+    while (env->created == 0) {
+        qemu_cond_wait(&qemu_cpu_cond, &qemu_global_mutex);
+    }
+}
+
+  5. 現在客戶機裡面每一個虛擬 CPU 都會以一個執行緒的身分執行
+     qemu_kvm_cpu_thread_fn。qemu_kvm_cpu_thread_fn 主要運行
+     kvm_cpu_exec，它負責發起 KVM_RUN 運行客戶機。
+
+static void *qemu_kvm_cpu_thread_fn(void *arg)
+{
+    ... 略 ...
+ 
+    r = kvm_init_vcpu(env);
+ 
+    while (1) {
+        if (cpu_can_run(env)) {
+            r = kvm_cpu_exec(env);
+            if (r == EXCP_DEBUG) {
+                cpu_handle_guest_debug(env);
+            }
+        }
+        qemu_kvm_wait_io_event(env);
+    }
+ 
+    return NULL;
+}
+
+    o kvm_init_vcpu 替客戶機中的 VCPU 取得 VCPU fd。
+
+int kvm_init_vcpu(CPUArchState *env)
+{
+    KVMState *s = kvm_state;
+    long mmap_size;
+    int ret;
+ 
+    ret = kvm_vm_ioctl(s, KVM_CREATE_VCPU, env->cpu_index);
+ 
+    env->kvm_fd = ret; // VCPU fd 而非 KVM fd。http://lists.gnu.org/archive/html/qemu-devel/2012-06/msg02302.html
+    env->kvm_state = s;
+    env->kvm_vcpu_dirty = 1;
+ 
+    // QEMU 的 kvm_run 被 mmap 到 VCPU fd。這非常重要，當後續 KVM 將客戶機的 IO
+    // 交給 QEMU 執行，QEMU 就是透過 kvm_run 讀取 IO 相關細節。
+    env->kvm_run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+                        env->kvm_fd, 0);
+ 
+    ret = kvm_arch_init_vcpu(env);
+    if (ret == 0) {
+        qemu_register_reset(kvm_reset_vcpu, env);
+        kvm_arch_reset_vcpu(env);
+    }
+err:
+    return ret;
+}
+
+  6. kvm_cpu_exec 發起 KVM_RUN 運行客戶機，並檢視 VMExit 的原因。
+     QEMU 主要處理客戶機發起的 IO 和 MMIO。
+
+int kvm_cpu_exec(CPUArchState *env)
+{
+    struct kvm_run *run = env->kvm_run;
+ 
+    do {
+        ... 略 ...
+
+        // (1)
+        run_ret = kvm_vcpu_ioctl(env, KVM_RUN, 0);
+
+        // (2) 
+        // 檢視 VMExit 的原因，並做相應的處理。若 VMExit 可由 KVM (內核)
+        // 處理，由 KVM 處理。
+        // 其餘諸如 IO 則交給 QEMU。
+        switch (run->exit_reason) {
+        // IO 交由 QEMU (用戶態) 處理。
+        case KVM_EXIT_IO:
+            DPRINTF("handle_io\n");
+            kvm_handle_io(run->io.port,
+                          (uint8_t *)run + run->io.data_offset,
+                          run->io.direction,
+                          run->io.size,
+                          run->io.count);
+            ret = 0;
+            break;
+        case KVM_EXIT_MMIO:
+            DPRINTF("handle_mmio\n");
+            cpu_physical_memory_rw(run->mmio.phys_addr,
+                                   run->mmio.data,
+                                   run->mmio.len,
+                                   run->mmio.is_write);
+            ret = 0;
+            break;
+ 
+        ... 略 ...
+
+        }
+    }
+}
+
+  至此，我們已講解底下流程圖 QEMU (user mode) 的部分。
+
+      QEMU (user mode)       KVM (kernel mode)        Guest VM (guest mode)
+
+        Issue Guest
+  -->                 -------------
+ |    Execution ioctl              |
+ |                                 |
+ |          (1)                    |
+ |                                 v
+ |
+ |                        --> Enter Guest Mode ---------------
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    v
+ |                       |              
+ |                       |                             Execute natively
+ |                       |           
+ |                       |                               in Guest Mode
+ |                       |              
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    |
+ |                       |    Handle Exit     <--------------- 
+ |                       |
+ |                       |        |              
+ |                       |        |
+ |                       |        |
+ |                       |        v 
+ |                    Y  |
+ |           ------------------- I/O?
+ |          |            |
+ |          |            |        |
+ |          |            |        | N
+ |          v            |        |
+ |                       |   Y    v
+  ----  Handle I/O <----------- Signal
+                         |
+           (2)           |     Pending?
+                         | 
+                         |        |
+                         |        | N
+                         |        |
+                         --------- 

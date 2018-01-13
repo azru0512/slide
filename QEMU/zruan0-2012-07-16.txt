@@ -1,0 +1,33 @@
+17:05 < chenwj> zruan0: you there?
+17:05 < zruan0> chenwj: yeah!
+17:06 < chenwj> http://www.cse.iitb.ac.in/~puru/courses/spring11/cs620/references/kvm.pdf <- I am not sure where the singal pending is handled in fig. 2.
+                Any idea on that?
+17:07 < chenwj> I don't know if the flow chart still correct or not. I see vmx_handle_exit -> handle_invalid_guest_state -> check if signal_pending ->
+                handle io
+17:08 < chenwj> the order is a little bit different
+17:12 < zruan0> chenwj: I think it is correct, how do you think it is wrong?
+17:12 < chenwj> what is correct?
+17:13 < chenwj> the flow chart?
+17:13 < zruan0> Yes
+17:14 < zruan0> anywhere you found it was not follow the chart?
+17:14 < chenwj> zruan0: what I see is below,
+17:15 < chenwj> vmx_handle_exit -> handle_invalid_guest_state -> check if signal_pending
+17:16 < chenwj> I am not sure if above does handle pending signal or not. If so, after that kvm call handle_io
+17:16 < chenwj> so the order is kind of reverse
+17:20 < zruan0> maybe the point you are arguing is that "Handle Exit" is processed before "Signal Pending" in chart, but the code is reverse this order?
+17:21 < zruan0> because handle_invalid_guest_state is called probably before kvm_vmx_exit_handlers[exit_reason](vcpu)??
+17:22 < chenwj> no, I am talking about "I/O?" and "Singal Pending?" part
+17:23 < zruan0> chenwj: where do you think "I/O" is processed in code?
+17:25 < chenwj> in the end of vmx_handle_exit (vmx.c), it will lookup kvm_vmx_exit_handlers[exit_reason], if exit_reason is io, then handle_io is called
+17:27 < zruan0> chenwj: I think "I/O" in this chart corresponds to a concept, such as "handling devices", not a VMEXIT caused by IO instructions.
+17:28 < chenwj> not sure what "handling devices" means...
+17:29 < zruan0> chenwj: In my view, it equals to handling external interrupts, etc.
+17:31 < chenwj> what's the difference between it and "signal panding"?
+17:32 < zruan0> Linux will take over execution to handle external interrupts after kvm exits guests and enables interrupts again.
+17:35 < zruan0> actually, I am also confused about the usage to signal in kvm, but I think it is possible that other processes would send signals to vm
+                process. You know guest is runing as qemu context (as I understood). .
+17:35 < chenwj> yes
+17:37 < zruan0> Signals in linux is also used to do some "process control" work, but I think sometime vm also would possibly be issued signals by other
+                process for special intents. this is my understanding.
+17:38 < chenwj> agraf: have time? ^^^
+17:43 < zruan0> chenwj: handling interrupts is triggered by hardware, but signal is also a kind of "software interrupts" to process.

@@ -1,0 +1,18 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+	\PY{n+nf}{callq}	\PY{n+no}{bar}
+	\PY{n+nf}{cmpl}	\PY{n+nv}{\PYZpc{}r14d}\PY{p}{,} \PY{n+nv}{\PYZpc{}r15d}
+	\PY{n+nf}{jle}	\PY{n+no}{.LBB0\PYZus{}2}
+	\PY{n+na}{.fill} \PY{l+m+mi}{124}\PY{p}{,} \PY{l+m+mi}{1}\PY{p}{,} \PY{l+m+mi}{0x90} \PY{c}{\PYZsh{} nop}
+\PY{c}{\PYZsh{} BB\PYZsh{}1:}
+	\PY{n+nf}{addl}	\PY{n+nv}{\PYZpc{}r15d}\PY{p}{,} \PY{n+nv}{\PYZpc{}eax}
+	\PY{n+nf}{jmp}	\PY{n+no}{.LBB0\PYZus{}3}
+\PY{n+nl}{.LBB0\PYZus{}2:}
+	\PY{n+nf}{imull}	\PY{n+nv}{\PYZpc{}ebx}\PY{p}{,} \PY{n+nv}{\PYZpc{}eax}
+\PY{n+nl}{.LBB0\PYZus{}3:}
+	\PY{n+nf}{addq}	\PY{n+no}{\PYZdl{}8}\PY{p}{,} \PY{n+nv}{\PYZpc{}rsp}
+	\PY{n+nf}{popq}	\PY{n+nv}{\PYZpc{}rbx}
+	\PY{n+nf}{popq}	\PY{n+nv}{\PYZpc{}r14}
+	\PY{n+nf}{popq}	\PY{n+nv}{\PYZpc{}r15}
+	\PY{n+nf}{popq}	\PY{n+nv}{\PYZpc{}rbp}
+	\PY{n+nf}{ret}
+\end{Verbatim}

@@ -1,0 +1,17 @@
+
+
+
+
+// memory.h
+struct AddressSpace {
+    MemoryRegion *root;
+    FlatView current_map;
+    int ioeventfd_nb;
+    MemoryRegionIoeventfd *ioeventfds;
+};
+
+// memory.c
+static AddressSpace address_space_memory;
+static AddressSpace address_space_io;
+
+  MemoryRegion

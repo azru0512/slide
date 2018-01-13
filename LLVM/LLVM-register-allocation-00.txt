@@ -1,0 +1,55 @@
+                Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+LLVM 3.0 其中一個較大幅度的改動就是更換它長久使用的 linear scan 暫存器配置器
+(register allocator)，改用 basic allocator 和 greedy allocator。本篇文章主要
+依據 [1] 進行介紹。我們先來一點基礎知識。
+
+一個程序的執行可以被視為計算機狀態 (state) 的一連串轉換。每一條述句 (statement)
+的執行都是將此前的狀態當作輸入，並輸出新的狀態。兩個述句之間的點被稱為 program
+point，每一個 program point 都有與之相對應的狀態。一個變數被 define，代表該變數
+被寫入值; 一個變數被 use，代表該變數的值被讀出 (參考 [22] 9.2 Introduction to
+Data-Flow Analysis)。針對變數 a 而言， 
+
+---------- program point 1
+  a = 1; // 變數 a 被 define
+---------- program point 2
+  b = a; // 變數 a 被 use
+---------- program point 3
+
+一個變數被稱為 live，代表該變數其值在將來會被使用到，亦即在某個時間點被讀出。
+一個變數的 live range 是一個 program point 的集合，該變數在這些 program ponit
+為 live。一個變數的 live interval 是一個最小區間，該區間包含該變數所有的 live
+range。live interval 相較於 live range 較不精確，但是其 register allocation
+較為簡單 (參考 [3] 第 39 頁)。Register Allocation [3] 第 64 頁演示的 linear
+scan 算法就是針對各個變數的 live interval 配置暫存器。編譯器在做 register
+allocation 時，會視情況針對某變數做 live range splitting，其目的是希望在 liver
+ange splitting 之後，能減少各變數之間 live range 重疊的情況。如果兩個變數的 live
+range 有所重疊，則代表這兩個變數無法分配到同一個暫存器，這會增加暫存器使用量。 
+
+Register allocation 包含兩個步驟: 首先，register allocation 釐清哪些變數將可存
+入暫存器; 接著，register assignment 將物理暫存器分配給那些變數 [2] 8.1.4 [4][5]。不過一般不會
+特別區分兩者，通稱為 register allocation。如果途中發現暫存器不敷使用，register
+allocation 演算法會選擇將某些暫存器存入內存，這個動作稱之為 spill。register
+allocation 演算法目標之一就是要降低 spill 的次數。一般來說，register allocation
+演算法會選擇把擁有較長 live interval 的變數 spill 到內存。這是因為如果將暫存器分
+配給該變數，則該暫存器將有較長時間不能再被使用。所以，一般會將暫存器優先分配給
+live interval 較短的變數。有時候，如果某暫存器其中的值可以在之後簡單的計算出來
+，算法可以選擇 spill 該暫存器，且之後不須從內存將其值讀出，只需要重新計算即可，
+這稱之為 rematerialization [6]。
+
+
+graph coloring? [3] p.104
+
+相較於 linear scan 是利用 live interval 此一較不精確的描述來分配暫存器，Register
+Allocation 第 109 頁演示的 graph coloring 算法利用 live range
+分配暫存器。每個變數代表一個節點。如果變數 A 和變數 B 的 live range
+有所重疊，則節點 A 和 B 之間有連線。針對各個變數的 live range 所建立的圖稱為
+register interference graph (RIG)。此算法目的是要替 RIG 上的節點著色
+(代表暫存器)，有連線的節點必須著以不同的顏色。 
+
+[1] http://blog.llvm.org/2011/09/greedy-register-allocation-in-llvm-30.html
+[2] Compilers: Principles, Techniques, and Tools - 2nd
+[3] http://www.stanford.edu/class/cs143/lectures/170_Register_Allocation.pdf
+[4] http://compilers.iecc.com/comparch/article/94-03-093
+[5] http://www.scribd.com/doc/49837633/10/Register-Allocation-and-Assignment
+[6] http://en.wikipedia.org/wiki/Rematerialization

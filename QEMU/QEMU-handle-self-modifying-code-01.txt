@@ -1,0 +1,121 @@
+                 Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+  自修改代碼 (self-modifying code, SMC) 基本上指的是一個進程 (process) 在執行時期
+修改自身位於內存中的代碼。自修改代碼在以前的年代是必要的。但隨著時代的演進，自修改
+代碼被視為有害。關於自修改代碼的介紹請見 [1][2][3]。然而本篇文章重點不在自修改代碼
+本身，而是在探討 QEMU 如何處理自修改代碼。這裡以 [4] 當作自修改代碼的範例。在現今
+的系統中，基本上會把進程的代碼段設為不可寫。因此該範例會利用 mprotect 將欲修改的代
+碼段設為可寫，再用 memcopy 將新的代碼覆寫掉舊的代碼。
+
+  對於 QEMU 這樣的 dynamic binary translator 而言，它必須要有能力偵測出自修改代碼。
+首先在前面的介紹中，我們知道 QEMU 會將 guest binary 翻譯成 host binary 並將其存放
+在 code cache 中。第二，我們也知道為了儘量在 code cache 中執行 host binary，QEMU
+會做 block chaining。假設 QEMU 無法偵測出自修改代碼正在修改其代碼，那 QEMU 執行
+的將會是舊的 guest binary (相對應的 host binary)，這樣一來無法表現出 guest binary
+新的行為。
+
+  QEMU 以底下兩個步驟處理自修改代碼。
+
+1. guest program 先透過 mprotect 改變其頁面權限 (如範例所示)。QEMU 處理的路徑會是
+   底下這樣。
+
+  do_syscall (linux-user/syscall.c) -> target_mprotect (linux-user/mmap.c)
+    -> page_set_flags (exec.c) -> tb_invalidate_phys_page (exec.c)
+
+void page_set_flags(target_ulong start, target_ulong end, int flags)
+{
+    for (addr = start, len = end - start;
+         len != 0;
+         len -= TARGET_PAGE_SIZE, addr += TARGET_PAGE_SIZE) {
+
+         // 以 guest pc 查詢二級頁表 l1_map 取得 PageDesc。
+         PageDesc *p = page_find_alloc(addr >> TARGET_PAGE_BITS, 1);
+ 
+        /* If the write protection bit is set, then we invalidate
+           the code inside.  */
+        if (!(p->flags & PAGE_WRITE) &&
+            (flags & PAGE_WRITE) &&
+            p->first_tb) {
+            tb_invalidate_phys_page(addr, 0, NULL);
+        }
+        p->flags = flags;
+    }
+}
+
+  如同 page_set_flags 中註解所說的，如果該客戶機頁面 (guest page) 的 "寫" 權限被設置
+起來，則與該客戶機頁面相對應的 TranslatonBlock 都將被沖掉。你可能需要回顧一下 [5] 複
+習一下 PageDesc 做何用途。;-)
+
+2. guest program 做 SMC 的時候觸發 SIGSEGV，這是因為 guest program 沒有先透過
+   mprotect 設置代碼段的 "寫" 權限。QEMU 會先註冊 host signal handler，這時就會收到
+   host 傳來的 SIGSEGV。page_unprotect 將該 guest page 相應的 tb 清掉 (step 1)，再
+   將該內存區段設成可寫 (step 2)。底下是 QEMU 的處理流程。
+
+  host_signal_handler (linux-user/signal.c) -> cpu_x86_signal_handler (user-exec.c)
+    -> handle_cpu_signal (user-exec.c) -> page_unprotect (exec.c)
+    -> tb_invalidate_phys_page (exec.c)
+
+  QEMU 0.15 將部份於 process (user) mode 會用到的函式從 cpu-exec.c 移至 user-exec.c。
+
+int page_unprotect(target_ulong address, unsigned long pc, void *puc)
+{
+    if ((p->flags & PAGE_WRITE_ORG) && !(p->flags & PAGE_WRITE)) {
+
+       for () {
+            tb_invalidate_phys_page(addr, pc, puc); // step 1
+        }
+
+        // step 2
+        mprotect((void *)g2h(host_start), qemu_host_page_size,
+                 prot & PAGE_BITS);
+
+        return 1;
+    }
+}
+
+  QEMU 在這兩個方向上偵測自修改代碼，最終都會執行到底下的流程:
+
+    tb_invalidate_phys_page (exec.c) -> tb_invalidate_phys_page (exec.c)
+
+  我們先來看 tb_invalidate_phys_page。基本上 QEMU 是以一個 guest page 為
+單位清掉與之相關聯的 tb。我建議你複習一下 [5] 底下對 QEMU 一些資料結構的
+解釋，這樣你會更清楚。
+
+static void tb_invalidate_phys_page(tb_page_addr_t addr,
+                                    unsigned long pc, void *puc)
+{
+    addr &= TARGET_PAGE_MASK;
+    p = page_find(addr >> TARGET_PAGE_BITS);
+    // 取得該 guest page 的第一個 tb。
+    // tb 末兩位如果是 01 (1)，代表 tb 對應的 guest bianry 跨 page。
+    tb = p->first_tb;
+ 
+    while (tb != NULL) {
+        n = (long)tb & 3; // 取得 block chaing 的方向
+        tb = (TranslationBlock *)((long)tb & ~3); // 去掉末兩位的編碼，還原回真正的 tb
+        tb_phys_invalidate(tb, addr); // tb_phys_invalidate 做真正的清除工作
+        tb = tb->page_next[n]; // 取得 tb 所屬 page (或下一個 page) 的下一個 tb
+    }
+    p->first_tb = NULL;
+ 
+}
+
+  tb_invalidate_phys_page 會呼叫 tb_phys_invalidate 做真正的清除工作。下一篇
+再作介紹。
+
+* 於 GDB 運行 QEMU 時，會遇到 SIGSEGV。請下 c 忽略它，讓 QEMU 繼續後續的流程。
+(gdb) r smc
+Starting program: qemu-i386 smc
+[Thread debugging using libthread_db enabled]
+PAGE(0x8048000): cp <0x804849a>[0..57] <0x80484f3>
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0000000060239e8c in static_code_gen_buffer ()
+(gdb) 
+
+
+[1] http://en.wikipedia.org/wiki/Self-modifying%20code
+[2] http://c2.com/cgi/wiki?SelfModifyingCode
+[3] http://discuss.fogcreek.com/joelonsoftware/default.asp?cmd=show&ixPost=44953
+[4] http://web.archive.org/web/20080618094733/http://public.carnet.hr/~jbrecak/sm.html
+[5] http://www.hellogcc.org/archives/248

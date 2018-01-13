@@ -1,0 +1,25 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c}{; ModuleID = \PYZsq{}fib.c\PYZsq{}}
+
+\PY{k}{define} \PY{k}{i32} \PY{n+nv+vg}{@fib}\PY{p}{(}\PY{k}{i32} \PY{n+nv}{\PYZpc{}x}\PY{p}{)} \PY{k}{nounwind} \PY{k}{uwtable} \PY{p}{\PYZob{}}
+\PY{n+nl}{entry:}
+            \PY{p}{.}\PY{p}{.}\PY{p}{.}
+  \PY{n+nv}{\PYZpc{}cmp} \PY{p}{=} \PY{k}{icmp} \PY{k}{sle} \PY{k}{i32} \PY{n+nv+nvAnonymous}{\PYZpc{}0}\PY{p}{,} \PY{l+m}{2}
+  \PY{k}{br} \PY{k}{i1} \PY{n+nv}{\PYZpc{}cmp}\PY{p}{,} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}if.then}\PY{p}{,} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}if.else}
+
+\PY{n+nl}{if.then:}                    \PY{c}{; preds = \PYZpc{}entry}
+  \PY{k}{store} \PY{k}{i32} \PY{l+m}{1}\PY{p}{,} \PY{k}{i32}\PY{p}{*} \PY{n+nv}{\PYZpc{}sum}\PY{p}{,} \PY{k}{align} \PY{l+m}{4}
+  \PY{k}{br} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}if.end}
+
+\PY{n+nl}{if.else:}                    \PY{c}{; preds = \PYZpc{}entry}
+            \PY{p}{.}\PY{p}{.}\PY{p}{.}
+  \PY{n+nv}{\PYZpc{}call2} \PY{p}{=} \PY{k}{call} \PY{k}{i32} \PY{n+nv+vg}{@fib}\PY{p}{(}\PY{k}{i32} \PY{n+nv}{\PYZpc{}sub1}\PY{p}{)}
+  \PY{n+nv}{\PYZpc{}add} \PY{p}{=} \PY{k}{add} \PY{k}{nsw} \PY{k}{i32} \PY{n+nv}{\PYZpc{}call}\PY{p}{,} \PY{n+nv}{\PYZpc{}call2}
+  \PY{k}{store} \PY{k}{i32} \PY{n+nv}{\PYZpc{}add}\PY{p}{,} \PY{k}{i32}\PY{p}{*} \PY{n+nv}{\PYZpc{}sum}\PY{p}{,} \PY{k}{align} \PY{l+m}{4}
+  \PY{k}{br} \PY{k+kt}{label} \PY{n+nv}{\PYZpc{}if.end}
+
+\PY{n+nl}{if.end:}                     \PY{c}{; preds = \PYZpc{}if.else, \PYZpc{}if.then}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}3} \PY{p}{=} \PY{k}{load} \PY{k}{i32}\PY{p}{*} \PY{n+nv}{\PYZpc{}sum}\PY{p}{,} \PY{k}{align} \PY{l+m}{4}
+  \PY{k}{ret} \PY{k}{i32} \PY{n+nv+nvAnonymous}{\PYZpc{}3}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

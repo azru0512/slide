@@ -1,0 +1,13 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+          \PY{p}{.}\PY{p}{.}\PY{p}{.}
+
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{FunctionType} \PY{o}{*}\PY{n}{funcType} \PY{o}{=} 
+      \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{FunctionType}\PY{o}{:}\PY{o}{:}\PY{n}{get}\PY{p}{(}\PY{n}{builder}\PY{p}{.}\PY{n}{getInt32Ty}\PY{p}{(}\PY{p}{)}\PY{p}{,} \PY{n+nb}{false}\PY{p}{)}\PY{p}{;}
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Function} \PY{o}{*}\PY{n}{mainFunc} \PY{o}{=} 
+      \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Function}\PY{o}{:}\PY{o}{:}\PY{n}{Create}\PY{p}{(}\PY{n}{funcType}\PY{p}{,}
+                             \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Function}\PY{o}{:}\PY{o}{:}\PY{n}{ExternalLinkage}\PY{p}{,}
+                             \PY{l+s}{\PYZdq{}}\PY{l+s}{main}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{n}{module}\PY{p}{)}\PY{p}{;}
+
+  \PY{n}{module}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{dump}\PY{p}{(} \PY{p}{)}\PY{p}{;}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

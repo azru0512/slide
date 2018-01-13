@@ -1,0 +1,272 @@
+        Copyright (c) 2011 陳韋任 (Chen Wen-Ren) 
+
+  本文譯自 Qemu Detailed Study
+  http://lists.gnu.org/archive/html/qemu-devel/2011-04/pdf5089zIoCz5.pdf
+
+  如同第六章所討論的，QEMU 是一個機器仿真器，因此它可以
+在某台機器上仿真給定數量的處理器架構。對 QEMU 而言，被
+仿真的架構被稱為 target。而運行 QEMU 的機器被稱為
+host。Tiny Code Generator (TCG) 是 QEMU 中的一塊模組，
+它負責動態的將 target code 轉成 host code。對 TCG 而言，
+target 這個字眼有不同的涵義，target 代表 TCG 針對哪一個
+host 產生代碼。圖 7.1 澄清上述所提及的術語。
+
+  我們可以稱被仿真的處理器所運行的代碼為 guest code，通常
+包含了 guest OS 和運行其上的其它工具。QEMU 首先取出 guest code，
+再將其轉換成 host code。整個轉換過程包含兩個步驟: 第一，
+guest code 中的一個基本塊被轉換成若干 TCG op。TCG op 是一種
+機器無關的中介代碼。第二，前述步驟的 TCG op 被 TCG 轉換成
+host code。若干優化可以在前述兩個步驟之間進行。
+
+7.1 Codebase
+
+  清楚了解 QEMU 代碼庫是能夠替 QEMU 加入新功能的前提。QEMU
+代碼庫包含超過 1300 個檔案，並組織在不同的目錄底下。即使 QEMU
+代碼庫有著良好的組織，但仍然會對新手造成困擾。本節將會介紹
+QEMU 代碼庫其組織架構。
+
+  在本節中，會以 "/" 代表 QEMU 代碼庫最上層的目錄。其後的子目錄
+將會遵循 Unix 檔案路徑的標記法。
+
+執行起始點:
+
+幾個主要值得研究的 C 檔案為: vl.c、cpus.c、exec-all.c、
+exec.c 和 cpu-exec.c。進入點 main 定義在 vl.c。其主要功用
+是為虛擬機設置環境，諸如: 內存大小、可選週邊和處理器個數
+等等。在設置完虛擬機之後，執行流程在 cpus.c、exec-all.c、
+exec.c 和 cpu-exec.c 之間交錯。
+
+被仿真的硬體:
+
+在 /hw/ 底下可以找到仿真虛擬機上所有虛擬硬體的代碼。QEMU
+仿真相當數量的硬體，但這裡不做深入討論。
+
+Guest 特有:
+
+目前 QEMU 所能仿真的處理器架構包括: Alpha，ARM，Cris，i386，
+M68K，PPC，Sparc，MIPS，MicroBlaze，S390X 和 SH4。針對各個架
+構，負責將 TB 轉換成若干 TCG op 的代碼位於 /target-xyz/，xyz
+為處理器架構名稱。因此，反組譯 i386 guest code 成 TCG op 的代
+碼位於 /target-i386/。這部分可以被稱做 TCG 的前端。 
+
+Host 特有: 
+
+/tcg/ 放置負責將 TCG op 翻譯成 host binary 的代碼。/tcg/xyz
+中的 xyz 即為處理器架構名稱。這部分可以被稱做 TCG 的後端。
+
+總結:
+
+/vl.c: 主要迴圈。負責虛擬機的設置和運行虛擬處理器。
+
+/target-xyz/translate.c: 負責 guest binary -> TCG op 的轉換。
+
+/tcg/tcg.c: TCG 主要代碼。
+
+/tcg/*/tcg-target.c: 負責 TCG op -> host binary 的轉換。
+
+/cpu-exec.c: 其中的 cpu-exec() 函式負責找到下一個欲執行的 TB。
+             如果失敗，則進行翻譯。最後執行翻譯得到的 host binary。
+
+7.2 TCG - 動態翻譯
+
+  如同此文件早先所提及的，QEMU 0.91 版以前是透過 DynGen 達成
+動態翻譯。TB 先被 DynGen 轉換成 C 代碼，再透過 GCC 將該 C 代
+碼轉成 host code。DynGen 的問題在於此過程與 GCC 密切相關。此
+外，GCC 的改版也會造成若干問題。TCG 即是用來取代 DynGen 以避
+免將動態翻譯綁定於特定的編譯器。
+
+  動態翻譯只在必要的時候才進行翻譯。主要的概念是盡可能將時間
+花費在執行 host code 上面。TB 翻譯後所得的 host code 會存放在
+code cache 中。依據 locality，大部分時間 guest 都會執行到相同
+的 TB。因此將其翻譯後所得的 host code 存放在 code cache 可得
+到較佳的效能。圖 7.2 總結前述所述。為使得事情較為簡單，當 code
+cache 滿了之後，QEMU 會清空整個 code cache。
+
+  編譯器負責將源代碼轉換成目標代碼。針對函式呼叫的目標代碼，
+像 GCC 這樣的編譯器會在該函式呼叫之前和之後插入特殊的匯編代碼，
+分別稱之為函式的 prologue 和 epilogue。
+
+針對有所謂桢指針和棧指針的架構，函式的 prologue 一般會有底下
+動作:
+
+  o 將當前桢指針入棧，如此在函式返回後才能回復原本的桢指針。
+
+  o 將棧指針賦值給桢指針，以便之後在當前栈上創建新的栈。
+
+  o 將棧指針移動適當距離以騰出空間給函式的本地變數。
+
+函式的 epilogue 反向執行 prologue 所做的動作，再將控制權交還
+給 calling function:
+
+  o 將桢指針賦值給棧指針。如此棧指針會回到 prologue 之前的值。
+
+  o 將 prologue 所存的桢指針出栈。如此桢指針會回到 prologue 之
+    前的值。
+
+  o 將先前存放在栈上的 eip 出栈，返回到 calling function。
+
+  TCG 可以被視為於執行時期動態產生目標代表的編譯器。TCG 產生的
+host code 放在 code cache。執行流程在 QEMU、prologue、epilogue
+和 code cache 之間往返。
+
+圖 7.4 - 7.7 依序描述 TCG 如何運作。下一節會針對圖中所見的函式
+做簡短描述。
+
+7.3 TB 的鏈結
+
+  在 code cache 和 QEMU 之間往返一般來說相當耗時。為解決此問題，
+QEMU 將 TB 與其後的 TB 鏈結起來。如此一來，執行完某個 TB 後可以
+直接跳轉至下一個 TB 繼續執行，不用返回 QEMU。TB 的鏈結發生在 TB
+執行完畢回到 QEMU 的時候。當 TB1 (沒有鏈結) 返回到 QEMU，QEMU
+找到下一個欲執行的 TB2，翻譯且執行 TB2。TB2 返回 QEMU 的時候，
+QEMU 將 TB1 與 TB2 鏈結起來。這樣下一次執行 TB1 就不需要返回
+QEMU 即可執行 TB2。圖 7.8 (a-c) 描述 TB 鏈結的過程。
+
+7.4 執行路徑
+
+  本小節會試著追尋 QEMU 的執行路徑，並點出被呼叫的函式所在的檔案
+位置。本小節主要著重在 TCG 的部分，因此將會著墨在生成 host code
+的代碼。對於 QEMU 生成 host code 的了解有助於修改 QEMU。
+
+main(...) {/vl.c}:
+
+  main 函式剖析命令行參數，並設置虛擬機的環境，諸如: 內存大小、
+硬盤大小和開機硬盤等等。一但虛擬機環境設置完畢，main 呼叫函式
+main_loop()。
+
+main_loop(...) {/vl.c}
+
+  main_loop 函式一開始會呼叫 qemu_main_loop_start()，然後進入一
+無窮迴圈執行 cpu_exec_all() 和 profile_getclock()。此無窮迴圈會
+檢查虛擬機終止條件，例如: qemu_shutdown_requested()、qemu_powerdown_requested()
+、和 qemu_vmstop_requested() 等等。在此將不探討前述終止條件。
+
+qemu_main_loop_start(...) {/cpus.c}:
+
+  qemu_main_loop_start 函式將變數 qemu_system_ready 設置為 1，
+並呼叫 qemu_cond_broadcast()。qemu_cond_broadcast 基本上是重啟
+所有等待在條件變數的執行緒。在此將不深入討論。詳情請見 /qemu-thread.c。
+
+profile_getclock(...) {/qemu-timer.c}:
+
+  profile_getclock 函式基本上處理計時 (CLOCK_MONOTONIC)。在此將不深入討論。
+
+cpu_exec_all(...) {/cpus.c}:
+
+  cpu_exec_all 函式採 round robin 的方式執行虛擬機中所有的虛擬處理器。
+QEMU 最多能支援 256 個虛擬處理器，但 QEMU 是以 round robin 的方式執行
+虛擬處理器。這與實際的多核心機器實際運作的方式不同。一但下一個欲執行
+的虛擬處理器被選到，會先確定該虛擬處理器可執行 (透過 cpu_can_run())。
+之後，該虛擬處理器的 CPUState (即變數 env) 會傳給 qemu_cpu_exec()。
+qemu_cpu_exec 會從以 CPUState 為虛擬處理器的起始狀態開始執行。
+
+struct CPUState {/target-xyz/cpu.h}:
+
+  struct CPUState 是架構特定，基本上存放處理器狀態，像是: 標準暫
+存器，段，FPU 狀態，例外/中斷處理，處理器特色和 QEMU 內部使用的
+變數和旗號。
+
+qemu_cpu_exec(...) {/cpus.c}:
+
+  qemu_cpu_exec 將真正的工作交給 cpu_exec()。
+
+cpu_exec(...) {/cpu-exec.c}:
+
+  cpu_exec 函式被稱為 "主要執行迴圈"。在這裡，一個翻譯塊 TB 首先
+被初始化 (TranslationBlock *tb)，接著處理例外。在兩層 for 無窮迴
+圈之內，我們可以找到 tb_find_fast() 和 tcg_qemu_tb_exec()。tb_find_fast()
+搜尋 guest 下一個該執行的 TB，並產生對應的 host code。產生的 host
+code 透過 tcg_qemu_tb_exec() 執行。
+
+struct TranslationBlock {/exec-all.h}:
+
+  struct TranslationBlock 包含以下資訊: PC，CS BASE，此 TB 的 Flag，
+tb_ptr (指向存放此 TB 對應的 host binary 的緩衝區)，tb_next_offset[2]
+，tb_jmp_offset[2] (這兩者都是用來搜尋此 TB 的下一個 TB)，*jmp_next[2]
+，jmp_first (指向那些跳至此 TB 的 TB)。
+
+tb_find_fast(...) {/cpu-exec.c}:
+
+  tb_find_fast 函式首先透過 cpu_get_tb_cpu_state() 取得當前 env (CPUState)
+的 PC，再取得該 PC 的哈希值。以該哈希值索引 tb_jmp_cache[] 取得下一個
+TB (如果有的話)。接著檢查該 TB 是否合法，如不合法，則呼叫 tb_find_slow()。
+
+cpu_get_tb_cpu_state(...) {/target-xyz/cpu.h}:
+
+  cpu_get_tb_cpu_state 函式會從當前 env (CPUState) 算出 PC 和 Flag。
+
+tb_jmp_cache_hash_func(...) {/exec-all.h}:
+
+  tb_jmp_cache_hash_func 函式算出 PC 的哈希值。該值用來索引 tb_jmp_cache[]
+取得下一個 TB。
+
+tb_find_slow(...) {/cpu-exec.c}
+
+  一但 tb_find_fast 查找失敗，便會呼叫 tb_find_slow 函式。此時 QEMU 會試圖
+用 PC 對映的物理位址查找 TB。
+
+    phys_pc = get_page_addr_code(env, pc);
+
+  phys_pc 是 PC 對映的物理位址，指向 guest OS 物理內存。QEMU 用 phys_pc 的
+哈希值索引 tb_phys_hash 取得下一個 TB。
+
+  ptb1 應該是下一個可能的 TB，同樣會在之後檢查其合法性。若 ptb1 不合法，則
+會透過 tb_gen_code 產生新的 TB。如果 ptb1 合法，則 ptb1 會被安插到 tb_hmp_cache[]。
+
+tb_gen_code(...) {/exec.c}:
+
+  tb_gen_code 函式首先會透過 tb_alloc() 配置新的 TB，該 TB 的 PC 值是透過
+get_page_addr_code() 由當前 CPUState 的 PC 計算而來。
+
+    phys_pc = get_page_addr_code(env, pc);
+    tb = tb_alloc(pc);
+
+之後再呼叫 cpu_gen_code() 進行 guest binary -> TCG ops -> host binary 的翻譯。
+最後透過 tb_link_page() 把新的 TB 加進 tb_phys_hash 和 l1_map 二級頁表 (其中
+存放 PageDesc)。
+
+cpu_gen_code(...) {translate-all.c}:
+
+  cpu_gen_code 函式開始 guest binary -> TCG ops -> host binary 的翻譯。底下
+給出一系列負責翻譯的函式呼叫。
+
+    gen_intermediate_code() {/target-xyz/translate.c} ->
+    gen_intermediate_code_internal() {/target-xyz/translate.c} ->
+    disas_insn() {/target-xyz/translate.c}
+
+disas_insn 函式負責將 guest binary 反組譯成若干 TCG op，並將 TCG op 寫入 code_buf。
+產生完 TCG op 之後，呼叫 tcg_gen_code()。
+
+tcg_gen_code(...) {/tcg/tcg.c}:
+
+  tcg_gen_code 函式負責將 TCG op 轉換成 host binary。
+
+#define tcg_qemu_tb_exec(...) {/tcg/tcg.c}:
+
+  一旦經由前述步驟取得下一個欲執行的 TB，該 TB 會透過 tcg_qemu_tb_exec 被執行。
+
+    next_tb = tcg_qemu_tb_exec(env, tc_ptr);
+
+tcg_qemu_tb_exec 實際上是一個定義在 /tcg/tcg.h 的巨集函式。
+
+    #define tcg_qemu_tb_exec(tb_ptr) ((long REGPARM (*)(void *))code_gen_prologue)(tb_ptr)
+
+  想要了解上述代碼做了什麼事，對函式指針的了解是必要的。
+
+  (int) var 會顯式的將變數 var 的型別轉換成 int。同樣道理，(long REGPARM (*)(void *))
+是一個型別，一個函式指針，返回值為 long 且其參數為 void *。REGPARM 在這裡會指示 GCC
+該函式是透過暫存器而非棧傳遞參數。
+
+  如果加上函式名稱的話，(long REGPARM (*)(void *)) 的意圖將會更加明確，也就是
+(long REGPARM (*func_name)(void *))。然而在此，儘管不加上函式名稱，其作用仍是相同的。
+當一個數組名稱被使用時，我們可以得到該數組的基底位址，也就是一個指針指向該數組。
+因此，(function_pointer) array_name 會將該數組指針轉型成函式指針。
+
+透過一個函式指針呼叫該函式的語法為: (*pointer_to_func)(args)。因此，
+((long REGPARM (*)(void *))code_gen_prologue)(tb_ptr) 代表一個函式呼叫。因為
+(*pointer_to_func)(args) 和 (pointer_to_func)(args) 等價，前述表達式可以不用
+在 code_gen_prologue 加上 *。
+
+  至此，我們了解到數組 code_gen_prologue 被轉型成一個函式且被呼叫。code_gen_prologue
+以 tc_ptr 為參數並返回下一個 TB。code_gen_prologue 做的事即為一般的 function
+prologue 所做的事，之後將控制權交給 tc_ptr 所指向的 host binary 並開始執行。

@@ -1,0 +1,86 @@
+
+
+
+
+
+  TCG IR -> host binary
+
+  - tcg_gen_code_common (tcg/tcg.c)
+
+static inline int tcg_gen_code_common(TCGContext *s, uint8_t *gen_code_buf,
+                                      long search_pc)
+{
+    ... 略 ...
+
+    for(;;) {
+        opc = gen_opc_buf[op_index];
+        def = &tcg_op_defs[opc];
+
+        switch(opc) {
+        case INDEX_op_mov_i32:
+
+        ... 略 ...
+ 
+        default:
+            /* Sanity check that we've not introduced any unhandled opcodes. */
+            if (def->flags & TCG_OPF_NOT_PRESENT) {
+                tcg_abort();
+            }
+            /* Note: in order to speed up the code, it would be much
+               faster to have specialized register allocator functions for
+               some common argument patterns */
+            dead_args = s->op_dead_args[op_index];
+            tcg_reg_alloc_op(s, def, opc, args, dead_args);
+            break;
+        }
+        args += def->nb_args;
+    next:
+        if (search_pc >= 0 && search_pc < s->code_ptr - gen_code_buf) {
+            return op_index;
+        }
+        op_index++;
+    }
+}
+
+  - tcg_reg_alloc_op 
+
+static void tcg_reg_alloc_op(TCGContext *s,
+                             const TCGOpDef *def, TCGOpcode opc,
+                             const TCGArg *args,
+                             unsigned int dead_args)
+{
+    /* copy constants */
+    memcpy(new_args + nb_oargs + nb_iargs,
+           args + nb_oargs + nb_iargs,
+           sizeof(TCGArg) * def->nb_cargs);
+
+    /* satisfy input constraints */
+
+    if (def->flags & TCG_OPF_BB_END) {
+        tcg_reg_alloc_bb_end(s, allocated_regs);
+    } else {
+
+        if (def->flags & TCG_OPF_CALL_CLOBBER) {
+            for(reg = 0; reg < TCG_TARGET_NB_REGS; reg++) {
+                if (tcg_regset_test_reg(tcg_target_call_clobber_regs, reg)) {
+                    tcg_reg_free(s, reg);
+                }
+            }
+            save_globals(s, allocated_regs);
+        }
+
+    }
+
+    /* emit instruction */
+    tcg_out_op(s, opc, new_args, const_args);
+
+}
+
+
+
+
+
+
+
+
+

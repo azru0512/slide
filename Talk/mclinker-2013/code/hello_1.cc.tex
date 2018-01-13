@@ -1,0 +1,14 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c+cp}{\PYZsh{}}\PY{c+cp}{include \PYZdq{}llvm}\PY{c+cp}{/}\PY{c+cp}{LLVMContext.h\PYZdq{}}
+\PY{c+cp}{\PYZsh{}}\PY{c+cp}{include \PYZdq{}llvm}\PY{c+cp}{/}\PY{c+cp}{Module.h\PYZdq{}}
+\PY{c+cp}{\PYZsh{}}\PY{c+cp}{include \PYZdq{}llvm}\PY{c+cp}{/}\PY{c+cp}{IRBuilder.h\PYZdq{}}
+
+\PY{k+kt}{int} \PY{n+nf}{main}\PY{p}{(}\PY{p}{)}
+\PY{p}{\PYZob{}}
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{LLVMContext}\PY{o}{\PYZam{}} \PY{n}{context} \PY{o}{=} \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{getGlobalContext}\PY{p}{(}\PY{p}{)}\PY{p}{;}
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Module}\PY{o}{*} \PY{n}{module} \PY{o}{=} \PY{k}{new} \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{Module}\PY{p}{(}\PY{l+s}{\PYZdq{}}\PY{l+s}{top}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{n}{context}\PY{p}{)}\PY{p}{;}
+  \PY{n}{llvm}\PY{o}{:}\PY{o}{:}\PY{n}{IRBuilder}\PY{o}{\PYZlt{}}\PY{o}{\PYZgt{}} \PY{n}{builder}\PY{p}{(}\PY{n}{context}\PY{p}{)}\PY{p}{;} 
+
+  \PY{n}{module}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{dump}\PY{p}{(} \PY{p}{)}\PY{p}{;}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

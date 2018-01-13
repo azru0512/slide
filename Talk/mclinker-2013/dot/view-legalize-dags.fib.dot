@@ -1,0 +1,24 @@
+digraph "legalize input for fib:return" {
+	rankdir="BT";
+	label="legalize input for fib:return";
+
+	Node0x2ed7280 [shape=record,shape=Mrecord,label="{EntryToken [ORD=15] [ID=0]|0x2ed7280|{<d0>ch}}"];
+	Node0x2f01000 [shape=record,shape=Mrecord,label="{FrameIndex\<0\> [ORD=15] [ID=1]|0x2f01000|{<d0>i64}}"];
+	Node0x2f01200 [shape=record,shape=Mrecord,label="{undef [ORD=15] [ID=2]|0x2f01200|{<d0>i64}}"];
+	Node0x2f01500 [shape=record,shape=Mrecord,label="{TargetConstant\<0\> [ID=3]|0x2f01500|{<d0>i16}}"];
+	Node0x2f03ab0 [shape=record,shape=Mrecord,label="{Register %EAX [ID=4]|0x2f03ab0|{<d0>i32}}"];
+	Node0x2f01300 [shape=record,shape=Mrecord,label="{{<s0>0|<s1>1|<s2>2}|load\<LD4[%retval]\> [ORD=15] [ID=5]|0x2f01300|{<d0>i32|<d1>ch}}"];
+	Node0x2f01300:s0 -> Node0x2ed7280:d0[color=blue,style=dashed];
+	Node0x2f01300:s1 -> Node0x2f01000:d0;
+	Node0x2f01300:s2 -> Node0x2f01200:d0;
+	Node0x2efedb0 [shape=record,shape=Mrecord,label="{{<s0>0|<s1>1|<s2>2}|CopyToReg [ID=6]|0x2efedb0|{<d0>ch|<d1>glue}}"];
+	Node0x2efedb0:s0 -> Node0x2ed7280:d0[color=blue,style=dashed];
+	Node0x2efedb0:s1 -> Node0x2f03ab0:d0;
+	Node0x2efedb0:s2 -> Node0x2f01300:d0;
+	Node0x2efebb0 [shape=record,shape=Mrecord,label="{{<s0>0|<s1>1|<s2>2}|X86ISD::RET_FLAG [ID=7]|0x2efebb0|{<d0>ch}}"];
+	Node0x2efebb0:s0 -> Node0x2efedb0:d0[color=blue,style=dashed];
+	Node0x2efebb0:s1 -> Node0x2f01500:d0;
+	Node0x2efebb0:s2 -> Node0x2efedb0:d1[color=red,style=bold];
+	Node0x0[ plaintext=circle, label ="GraphRoot"];
+	Node0x0 -> Node0x2efebb0:d0[color=blue,style=dashed];
+}

@@ -1,0 +1,103 @@
+                Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+我們開始介紹 LLVM linear scan register allocator。以下提到的 linear scan 專指
+LLVM linear scan register allocator，主要參考 [1] 和 [3][4] 第 16 頁。 
+
+
+在進到 Allocator 之前，必須要先經過幾個流程。
+
+  PHI Elimination -> Two-Address -> Liveness -> Coalescing
+    -> Allocator (Spiller) -> Rewriter
+                                                                   
+LLVM IR 屬於 SSA (Static Single Assignment) 的形式。簡單來說，一個賦值表示式會創
+建出一個新的變數。之所以採用 SSA 的形式是因為此種形式使得之後的優化更加好做。比
+如說底下這段代碼:
+
+   y := 1
+   y := 2
+   x := y
+
+將其轉為 SSA 形式之後會變成:
+
+   y_1 := 1
+   y_2 := 2
+   x_1 := y_2
+
+這樣一來，編譯器很容易看出 "y_1 := 1" 這條賦值語句是多餘的。在 SSA 中，為了判定
+某一個變數的 def 是從哪一個執行路徑過來，有所謂的 PHI Node。我們拿 [6] 當例子。
+
+---
+if (...) {
+  *A = 5;
+  P = A; 
+} else {
+  *B = 9;
+  P = B;
+}
+  use(*P);
+---
+
+---
+BB1:
+  store i32 5, i32* %A
+  br label %Merge
+
+BB2:
+  store i32 9, i32* %B
+  br label %Merge
+
+Merge:
+  %P = phi i32* [%A, %BB1], [%B, %BB2]
+  %Y = load i32 *%P
+  ...
+  ... use %Y ...
+---
+
+  但是一般的機器並不支援類似 PHI Node 的運算。因此我們必須將 PHI Node 換成普通的
+運算，這就是所謂的 PHI Elimination。請見 [4] 第 4 - 8 頁。
+
+  LLVM IR 大致分為底下六類:
+
+1. Three-address code (TAC) 指令: 算術運算指令，比較運算指令和位元 (bitwise）運算指令。
+
+2. 控制流指令: 條件和無條件跳轉指令，返回指令和 PHI。
+
+3. 函式呼叫指令: call。
+
+4. 求址指令: getelementptr。
+
+5. 其它: 轉型 (cast)，有號/無號擴展和 truncation instruction。
+
+
+  目標機器不見得支援 Three-address code，例如 x86。Two-Address 負責將 Three-address code
+傳換成 Two-address code。
+
+  接著 Liveness 計算各變數的 live range (live interval)。
+
+  Coalescing 負責消除冗餘的拷貝。但是這會使得變數的 live range 拉長。這會對之後
+的 allocator 造成壓力，還記得前面提到 allocator 偏好 live range 較短的變數嗎?
+
+  
+
+  
+ 
+
+
+
+llvm-2.9/lib/CodeGen/*
+
+
+[1] http://blog.llvm.org/2011/09/greedy-register-allocation-in-llvm-30.html
+[2] http://www.stanford.edu/class/cs143/lectures/170_Register_Allocation.pdf
+[3] http://www.llvm.org/devmtg/2008-08/Cheng_RegisterAllocation.pdf
+[4] http://llvm.org/devmtg/2009-10/RegisterAllocationFutureWorks.pdf
+[5] http://en.wikipedia.org/wiki/Static_single_assignment_form
+[6] http://blog.llvm.org/2009/12/advanced-topics-in-redundant-load.html
+[7] http://baldur.iti.uka.de/~falke/papers/VSTTE12a.pdf (Termination Analysis of Imperative Programs Using Bitvector Arithmetic)
+
+[] http://llvm.org/devmtg/2011-11/Olesen_RegisterAllocation.pdf
+[] http://llvm.org/devmtg/2011-11/Grosbach_Anderson_LLVMMC.pdf
+
+[1] http://llvm.org/docs/CodeGenerator.html#machineinstr
+
+[] http://lists.cs.uiuc.edu/pipermail/llvmdev/2011-December/046073.html

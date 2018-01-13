@@ -1,0 +1,108 @@
+                 Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+  tb_invalidate_phys_page 會呼叫 tb_phys_invalidate 做真正的清除工作。
+這裡複習一下和 tb 相關聯的一些資料結構 (詳細請見 [1]) :
+
+1. QEMU 替每個 virtual CPU (env) 維護一個以 guest virtual pc 為索引的快
+   取 tb_jmp_cache。tb_find_fast 會查找 tb_jmp_cache 看是否已有翻譯過的
+   host binary 存放在 code cache。
+
+2. 一但 tb_find_fast 查找失敗，tb_find_slow 改以 guest virtual pc 對映
+   的 guest physical address 查找 tb_phys_hash。
+
+3. QEMU 維護一個二級頁表 l1_map，其中存放 PageDesc。PageDesc 保存 guest
+   page 中 tb 的資訊。
+
+  我們先來看 tb_phys_invalidate 的前半部。
+
+void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr)
+{
+    // 將該 tb 從 tb_phys_hash 中移除
+    phys_pc = tb->page_addr[0] + (tb->pc & ~TARGET_PAGE_MASK); // virtual addr 中 page offset 的部分和 physical addr 一樣
+    h = tb_phys_hash_func(phys_pc);
+    tb_remove(&tb_phys_hash[h], tb,
+              offsetof(TranslationBlock, phys_hash_next));
+
+    // 將 tb 從相應的 PageDesc 中移除
+    if (tb->page_addr[0] != page_addr) {
+        p = page_find(tb->page_addr[0] >> TARGET_PAGE_BITS);
+        tb_page_remove(&p->first_tb, tb);
+        invalidate_page_bitmap(p);
+    }
+
+    // 將 tb 從 tb_jmp_cache 移除
+    h = tb_jmp_cache_hash_func(tb->pc);
+    // 因為每一個 env 都有一份自己的 tb_jmp_cache，全部清除。
+    for(env = first_cpu; env != NULL; env = env->next_cpu) {
+        if (env->tb_jmp_cache[h] == tb)
+            env->tb_jmp_cache[h] = NULL;
+    }
+
+    ...
+}
+
+  假設某個 tb 相對應的 guest binary 因為 SMC 而被改寫，則該 tb 除了
+必須從 tb_phys_hash、tb_jmp_cache 和 PageDesc 被移除之外，所有因
+block chaining 而與這個 tb 相連的其它 tb 的連結都需要被打斷。請複習
+[2][3]。我這裡簡單描述一下 block chaining。QEMU 除了 patch tb 在 code
+cache 中的跳躍位址使其跳至同樣位於 code cache 中的其它 tb，同時也用
+TranslationBlock 中的 jmp_next 和 jmp_first 兩個欄位追蹤 block chaining
+的情況。我們繼續看 tb_phys_invalidate 的後半段。:-)
+
+void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr)
+{
+    // 打斷 block chaining
+
+    // 處理 tb1 (tb -> tb1)
+    tb_jmp_remove(tb, 0);
+    tb_jmp_remove(tb, 1);
+ 
+    // 處理 tb1 (tb1 -> tb)
+    tb1 = tb->jmp_first;
+    for(;;) {
+        n1 = (long)tb1 & 3;
+        if (n1 == 2) // tb1 末兩位如果為 10 (2)，代表 tb1 沒有跳至其它 tb
+            break;
+        tb1 = (TranslationBlock *)((long)tb1 & ~3); // 還原回原本的 tb1
+        tb2 = tb1->jmp_next[n1]; // 處理 tb2 (tb1 -> tb2)
+        tb_reset_jump(tb1, n1); // 將 tb1 至其它的 tb 的 block chaining 打斷 (code cache)
+        tb1->jmp_next[n1] = NULL;
+        tb1 = tb2;
+    }
+    tb->jmp_first = (TranslationBlock *)((long)tb | 2); // 將 jmp_first 再次指向自己
+}
+
+  o tb_jmp_remove 將該 tb 移出 circular list。
+
+static inline void tb_jmp_remove(TranslationBlock *tb, int n)
+{
+    ptb = &tb->jmp_next[n]; // n (0 或 1) 指示 tb 下一個 block chaining 的方向
+    tb1 = *ptb; // 處理 tb1 (tb -> tb1)
+    if (tb1) {
+        /* find tb(n) in circular list */
+        for(;;) {
+            tb1 = *ptb;
+            n1 = (long)tb1 & 3; // 取出 tb1 末兩位
+              tb1 = (TranslationBlock *)((long)tb1 & ~3); 還原回原本的 tb1
+            if (n1 == n && tb1 == tb) // 代表 tb 沒有跳至其它 tb
+                break;
+            if (n1 == 2) {
+                ptb = &tb1->jmp_first; // 代表沒有其它 tb 跳至 tb1
+            } else {
+                ptb = &tb1->jmp_next[n1]; // 處理 tb2 (tb1 -> tb2)
+            }
+        }
+        /* now we can suppress tb(n) from the list */
+        *ptb = tb->jmp_next[n];
+ 
+        tb->jmp_next[n] = NULL;
+    }
+}
+
+  SMC 是 QEMU process mode 中比較 ugly 的部分。QEMU system mode 同樣也需要
+做 block unchaining 或是 invalidate tb，只是 system mode 的情況要複雜得多了
+。這部份以後有機會再談。:-)  
+
+[1] http://www.hellogcc.org/archives/326
+[2] http://www.hellogcc.org/archives/344
+[3] http://www.hellogcc.org/archives/357

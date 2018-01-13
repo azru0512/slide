@@ -1,0 +1,75 @@
+                Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+我們開始介紹 LLVM linear scan register allocator。以下提到的 linear scan 專指
+LLVM linear scan register allocator，主要參考 [1] 和 [3][4] 第 16 頁。 
+
+basic & greedy。
+
+--- RegAllocBase.h
+  LiveUnionArray PhysReg2LiveUnion; // Live Interval Unions
+---
+
+--- class RABasic : public MachineFunctionPass, public RegAllocBase
+class RABasic : public MachineFunctionPass, public RegAllocBase
+{
+  // context
+  MachineFunction *MF;
+
+  // analyses
+  LiveStacks *LS;
+  RenderMachineFunction *RMF;
+
+  // state
+  std::auto_ptr<Spiller> SpillerInstance;
+  std::priority_queue<LiveInterval*, std::vector<LiveInterval*>,
+                      CompSpillWeight> Queue; // Priority Queue
+}
+
+--- RABasic::runOnMachineFunction ---
+---
+
+--- RegAllocBase::allocatePhysRegs() ---
+  // Continue assigning vregs one at a time to available physical registers.
+  while (LiveInterval *VirtReg = dequeue()) {
+  }
+---
+
+--- RAGreedy::runOnMachineFunction
+  allocatePhysRegs();
+---
+
+新增 priority queue 和 live interval unions 兩個資料結構
+
+我們這裡提及的 machine instruction 指的是 LLVM MachineInstr (MI)，不要和 machine
+code (LLVM Machine Code，又稱 MC) 搞混。MC 負責操作 MI 進行目的檔的輸出。
+
+
+底下是目前 LLVM 後端 codegen 的流程。
+
+  0. LLVM IR to DAG 
+  1. DAG to MI lowering (and pre-RA schedule)
+  2. MI optimizations (LICM, CSE, etc.)
+  3. Register allocation super pass
+     3a. De-ssa (2-address, phi slim)
+     3b. Coalescing
+     3c. Actual register allocation
+  4. Post-RA optimizations
+  5. PEI
+  6. Post-RA scheduling
+
+blog 文章重點放在 "3c. Actual register allocation" 這個階段。
+
+
+
+[1] http://blog.llvm.org/2011/09/greedy-register-allocation-in-llvm-30.html
+[2] http://www.stanford.edu/class/cs143/lectures/170_Register_Allocation.pdf
+[3] http://www.llvm.org/devmtg/2008-08/Cheng_RegisterAllocation.pdf
+[4] http://llvm.org/devmtg/2009-10/RegisterAllocationFutureWorks.pdf
+[5] http://en.wikipedia.org/wiki/Static_single_assignment_form
+
+[] http://llvm.org/devmtg/2011-11/Olesen_RegisterAllocation.pdf
+[] http://llvm.org/devmtg/2011-11/Grosbach_Anderson_LLVMMC.pdf
+
+[1] http://llvm.org/docs/CodeGenerator.html#machineinstr
+
+[] http://lists.cs.uiuc.edu/pipermail/llvmdev/2011-December/046073.html

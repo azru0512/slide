@@ -1,0 +1,22 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k}{define} \PY{k}{i32} \PY{n+nv+vg}{@bar}\PY{p}{(}\PY{k}{i32} \PY{n+nv}{\PYZpc{}x}\PY{p}{)} \PY{k}{nounwind} \PY{p}{\PYZob{}}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}1} \PY{p}{=} \PY{k}{alloca} \PY{k}{i32}\PY{p}{,} \PY{k}{align} \PY{l+m}{4}
+  \PY{k}{store} \PY{k}{i32} \PY{n+nv}{\PYZpc{}x}\PY{p}{,} \PY{k}{i32}\PY{p}{*} \PY{n+nv+nvAnonymous}{\PYZpc{}1}\PY{p}{,} \PY{k}{align} \PY{l+m}{4}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}2} \PY{p}{=} \PY{k}{load} \PY{k}{i32}\PY{p}{*} \PY{n+nv+nvAnonymous}{\PYZpc{}1}\PY{p}{,} \PY{k}{align} \PY{l+m}{4}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}3} \PY{p}{=} \PY{k}{icmp} \PY{k}{ne} \PY{k}{i32} \PY{n+nv+nvAnonymous}{\PYZpc{}2}\PY{p}{,} \PY{l+m}{0}
+  \PY{k}{br} \PY{k}{i1} \PY{n+nv+nvAnonymous}{\PYZpc{}3}\PY{p}{,} \PY{k+kt}{label} \PY{n+nv+nvAnonymous}{\PYZpc{}4}\PY{p}{,} \PY{k+kt}{label} \PY{n+nv+nvAnonymous}{\PYZpc{}7}
+
+\PY{c}{; \PYZlt{}label\PYZgt{}:4                                       ; preds = \PYZpc{}0}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}5} \PY{p}{=} \PY{k}{call} \PY{k}{i32} \PY{n+nv+vg}{@foo}\PY{p}{(}\PY{p}{)}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}6} \PY{p}{=} \PY{k}{add} \PY{k}{nsw} \PY{k}{i32} \PY{n+nv+nvAnonymous}{\PYZpc{}5}\PY{p}{,} \PY{l+m}{1}
+  \PY{k}{br} \PY{k+kt}{label} \PY{n+nv+nvAnonymous}{\PYZpc{}9}
+
+\PY{c}{; \PYZlt{}label\PYZgt{}:7                                       ; preds = \PYZpc{}0}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}8} \PY{p}{=} \PY{k}{call} \PY{k}{i32} \PY{n+nv+vg}{@baz}\PY{p}{(}\PY{p}{)}
+  \PY{k}{br} \PY{k+kt}{label} \PY{n+nv+nvAnonymous}{\PYZpc{}9}
+
+\PY{c}{; \PYZlt{}label\PYZgt{}:9                                       ; preds = \PYZpc{}7, \PYZpc{}4}
+  \PY{n+nv+nvAnonymous}{\PYZpc{}10} \PY{p}{=} \PY{k}{phi} \PY{k}{i32} \PY{p}{[} \PY{n+nv+nvAnonymous}{\PYZpc{}6}\PY{p}{,} \PY{n+nv+nvAnonymous}{\PYZpc{}4} \PY{p}{]}\PY{p}{,} \PY{p}{[} \PY{n+nv+nvAnonymous}{\PYZpc{}8}\PY{p}{,} \PY{n+nv+nvAnonymous}{\PYZpc{}7} \PY{p}{]}
+  \PY{k}{ret} \PY{k}{i32} \PY{n+nv+nvAnonymous}{\PYZpc{}10}
+\PY{p}{\PYZcb{}}
+\end{Verbatim}

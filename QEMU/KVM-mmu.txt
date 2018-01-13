@@ -1,0 +1,73 @@
+                 Copyright (c) 2012 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+
+                                Y
+ mov (%ebx) %eax ---> TLB Hit? ---> physical address --->
+     ^^^^^              |                                    Memory 
+  virtual address       | N               data       <---    
+                        |
+                        v
+                       Walk
+                    Page Table
+                    (VA -> PA)
+
+            cr3 -->  ________    
+                    |        |
+                    |        | -->  ________
+                    |        |     |        |
+                    |________|     |        | --> physical address
+                                   |        |
+                                   |________|
+
+
+  VA: Virtual Address
+  PA: Physical Address
+
+
+  1. Shadow Page Table (影子頁表)
+
+              guest
+           page table (GVA -> GPA)
+            ________
+           |        |
+           |        |
+           |        |
+       --> |________| 
+      |
+      |
+     fake cr3                          (guest vm)
+    ----------------------------------------------
+ mov (%ebx) %eax --> cr3              (hardware)
+                      |   shadow  
+                      | page table (GVA -> HPA)
+                      v ________
+                       |        |       
+                       |        |
+                       |        |
+                       |________|
+
+
+  2. EPT/NPT
+
+                              guest
+                            page table (GVA -> GPA)
+                            ________
+                           |        |
+                           |        |
+                           |        | ---> yyyy
+                   (1) --> |________|
+                      |
+      xxxx            |
+ mov (%ebx) %eax --> cr3                            (guest vm)
+    -------------------------------------------
+                     eptp                           
+                      |  extended
+                      | page table (GPA -> HPA)
+                      v ________
+               (2)     |        |
+                       |        |
+              yyyy --> |        | ---> zzzz ---> Memory 
+                       |________|
+
+

@@ -1,0 +1,294 @@
+                 Copyright (c) 2012 陳韋任 (Chen Wei-Ren)
+                       chenwj at iis.sinica.edu.tw
+
+  接著概略提到 KVM 這一部分的代碼，這裡以 Intel VT-x 為例。可以從底下連結下載
+代碼。
+
+$ git clone git://git.kernel.org/pub/scm/virt/kvm/kvm.git
+
+底下是主要目錄和檔案。
+
+  - virt/kvm/*
+  - arch/x86/kvm/*
+  - include/linux/kvm.h
+  - include/linux/kvm_host.h
+  - arch/x86/include/asm/kvm_host.h
+
+  我們先來看 KVM 中處理 ioctl 命令的代碼，這樣比較能順藤摸瓜的閱讀下去。先複習一
+下上層 QEMU 操作 KVM 的流程。這部分可以搭配 Documentation/virtual/kvm/api.txt 閱讀。
+
+    1. 開啟 /dev/kvm 取得 KVM fd。
+
+    2. QEMU 對 KVM fd 發出 KVM_CREATE_VM 命令，取得 VM fd。VM fd 代表一個客戶機。
+
+    3. QEMU 對 VM fd 發出 KVM_CREATE_VCPU 命令，取得 VCPU fd。客戶機中每一個
+       VCPU 都要有一個相對應的 VCPU fd。
+
+    4. QEMU 對 VCPU fd 發出 KVM_RUN 命令，從根模式用戶態切換至根模式內核態進入
+       KVM，KVM 再透過 VMEntry 運行客戶機，此時從根模式內核態切換至非根模式。
+
+  - kvm_dev_ioctl (virt/kvm/kvm_main.c) 負責處理對 KVM fd 下達的命令。
+
+static long kvm_dev_ioctl(struct file *filp,
+        unsigned int ioctl, unsigned long arg)
+{
+  long r = -EINVAL;
+ 
+  switch (ioctl) {
+  case KVM_GET_API_VERSION:
+    r = -EINVAL;
+    if (arg)
+      goto out;
+    r = KVM_API_VERSION;
+    break;
+  case KVM_CREATE_VM:
+    r = kvm_dev_ioctl_create_vm(arg);
+    break;
+ 
+  ... 略 ...
+ 
+  }
+}
+
+  - kvm_vm_ioctl (virt/kvm/kvm_main.c) 負責處理對 VM fd 下達的命令。
+
+static long kvm_vm_ioctl(struct file *filp,
+         unsigned int ioctl, unsigned long arg)
+{
+  switch (ioctl) {
+  case KVM_CREATE_VCPU:
+    r = kvm_vm_ioctl_create_vcpu(kvm, arg);
+    if (r < 0)
+      goto out;
+    break;
+  case KVM_SET_USER_MEMORY_REGION: {
+    struct kvm_userspace_memory_region kvm_userspace_mem;
+ 
+    r = -EFAULT;
+    // 注意! 客戶機物理內存是從 QEMU 虛擬內存分配。底下將 KVM_SET_USER_MEMORY_REGION
+    // 後面接的 kvm_userspace_mem 參數從用戶態拷貝到內核態。
+    if (copy_from_user(&kvm_userspace_mem, argp,
+            sizeof kvm_userspace_mem))
+      goto out;
+ 
+    r = kvm_vm_ioctl_set_memory_region(kvm, &kvm_userspace_mem, 1);
+    if (r)
+      goto out;
+    break;
+  }
+ 
+  ... 略 ...
+ 
+  }
+}
+
+  - kvm_vcpu_ioctl (virt/kvm/kvm_main.c) 負責處理對 VCPU fd 下達的命令。 
+
+static long kvm_vcpu_ioctl(struct file *filp,
+         unsigned int ioctl, unsigned long arg)
+{
+  switch (ioctl) {
+  case KVM_RUN:
+    r = -EINVAL;
+    if (arg)
+      goto out;
+    r = kvm_arch_vcpu_ioctl_run(vcpu, vcpu->run);
+    trace_kvm_userspace_exit(vcpu->run->exit_reason, r);
+    break;
+  ... 略 ...
+}
+
+0. VMCS (Virtual Machine Control Structure)
+
+  VMCS 是 x86 負責保存宿主機和客戶機的資料結構，[1] 24 章描述其內容。我們必須
+透過諸如: VMREAD、VMWRITE 或是 VMCLEAR 這一類指令讀寫 VMCS。
+
+  x86 提供 VMEentry 指令由根模式切換至非根模式。VMEntry 分為 VMLAUNCH 和 VMRESUME。
+VMLAUNCH 用於第一次執行客戶機時，切換至非根模式時使用。非根模式遇到特殊情況，例如
+客戶機發起 IO，或是客戶機執行某些敏感指令，都會觸發 VMExit 回到 KVM，注意! 這是
+CPU 自動由非根模式切換至根模式，不需要執行額外指令。KVM 視情況會模擬客戶機敏感指
+令的運行，又或是將 IO 交給 QEMU 模擬。另一種情況是，客戶機作業系統主動透過 VMCALL
+回到 KVM。KVM 處理完客戶機的請求之後，再用 VMRESUME 切換至非根模式運行客戶機。整
+個流程可以概括成底下這張圖:
+
+      QEMU (user mode)       KVM (kernel mode)        Guest VM (guest mode)
+
+        Issue Guest
+  -->                 -------------
+ |    Execution ioctl              |
+ |                                 |
+ |                                 |
+ |                                 v
+ |                                             VMLAUNCH/VMRESUME 
+ |                        --> Enter Guest Mode ---------------
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                                    v
+ |                       |              
+ |                       |                             Execute natively
+ |                       |           
+ |                       |                               in Guest Mode
+ |                       |              
+ |                       |                                    |
+ |                       |                                    |
+ |                       |                          VMExit    |
+ |                       |    Handle Exit     <--------------- 
+ |                       |                      VMCALL/HW trigger
+ |                       |        |              
+ |                       |        |
+ |                       |        |
+ |                       |        v 
+ |                    Y  |
+ |           ------------------- I/O?
+ |          |            |
+ |          |            |        |
+ |          |            |        | N
+ |          v            |        |
+ |                       |   Y    v
+  ----  Handle I/O <----------- Signal
+                         |
+                         |     Pending?
+                         | 
+                         |        |
+                         |        | N
+                         |        |
+                         --------- 
+
+  當 KVM 發起 VMEntry 時，硬體會將 VMCS 中客戶機的資料載入到 CPU，開始運行客戶
+機代碼。運行客戶機代碼如果遇到特殊情況觸發 VMExit 返回 KVM，這時硬體會將 CPU
+狀態存回 VMCS 客戶機欄位，同時將 VMExit 的原因紀錄在 VMCS，硬體也會將 VMCS 中
+宿主機的資料載入到 CPU，返回 KVM 處理 VMExit。
+
+1. 資料結構 [2]
+
+  底下是 KVM x86 主要的資料結構。
+
+  - struct kvm (include/linux/kvm_host.h)，此即為 VM。
+
+struct kvm {
+  spinlock_t mmu_lock;
+  struct mutex slots_lock;
+  struct mm_struct *mm; /* userspace tied to this vm */
+  struct kvm_memslots *memslots;
+  struct srcu_struct srcu;
+#ifdef CONFIG_KVM_APIC_ARCHITECTURE
+  u32 bsp_vcpu_id; // SMP 一般支援 APIC，此時其中一個 VCPU 扮演 BSP (bootstrap processor)。
+#endif
+  struct kvm_vcpu *vcpus[KVM_MAX_VCPUS]; // VM 內可含多個 VCPU。
+  struct kvm_arch arch; // 不同的平台會定義自己的 kvm_arch。
+ 
+  ... 略 ...
+};
+
+  - struct kvm_vcpu (include/linux/kvm_host.h)，此即為 VCPU。
+
+struct kvm_vcpu {
+  struct kvm *kvm;
+  int cpu;
+  int vcpu_id;
+  int srcu_idx;
+  int mode;                 // VCPU 處於何種模式，如: OUTSIDE_GUEST_MODE 或 IN_GUEST_MODE。
+  unsigned long requests;
+  unsigned long guest_debug;
+ 
+  struct mutex mutex;
+  struct kvm_run *run;      // 保存諸如 KVM VMExit 相關訊息。
+ 
+  ... 略 ...
+ 
+  struct kvm_vcpu_arch arch; /* 不同 ISA 有自己的 kvm_vcpu_arch，其中包含平台特定的暫存器組。 */
+};
+
+
+2. 函式路徑 [3]
+
+  2.1 KVM 模組進入點
+
+    當載入 KVM 內核模組時，進入 vmx_init 開始初始化。 
+
+    vmx_init (vmx.c)
+
+        |
+        v
+
+    kvm_init (kvm_main.c)
+
+        |
+        v
+
+    kvm_arch_init (kvm_main.c) --> kvm_arch_hardware_setup (x86.c)
+        
+        |                                    |
+        v                                    v
+
+    kvm_timer_init (x86.c)         kvm_x86_ops->hardware_setup (hardware_setup in vmx.c)  
+
+                                             |
+                                             v
+
+                                   setup_vmcs_config (vmx.c) --> alloc_kvm_area (vmx.c)
+
+                                                                        | For each VCPU, do the following
+                                                                        v
+
+                                                                 alloc_vmcs_cpu (vmx.c)
+
+  2.2 替每一個 VCPU 配置 VMCS 
+
+    KVM_CREATE_VCPU --> kvm_vm_ioctl (kvm_main.c)
+
+                             |
+                             v
+
+                        kvm_vm_ioctl_create_vcpu (kvm_main.c)
+
+                             |
+                             v
+
+                        kvm_arch_vcpu_create (x86.c)            
+
+                             |
+                             v
+
+                        kvm_x86_ops->vcpu_create (vmx_create_vcpu in vmx.c)
+
+                             |
+                             v
+
+                        alloc_vmcs (vmx.c) ---> vmx_vcpu_setup (vmx.c)
+
+                             |                        |
+                             v                        v
+
+                        alloc_vmcs_cpu (vmx.c)  vmcs_writel (vmx.c)
+
+
+  2.3 KVM 處理 QEMU 發起的 KVM_RUN
+
+    KVM_RUN --> kvm_vcpu_ioctl (kvm_main.c)
+
+                      |
+                      v
+
+                kvm_arch_vcpu_ioctl_run (x86.c)
+
+                      |
+                      v
+
+                __vcpu_run (x86.c)
+
+                      |
+                      v
+
+                vcpu_enter_guest (x86.c)
+ 
+                      |
+                      v
+
+                kvm_x86_ops->run(vcpu) (vmx_vcpu_run in vmx.c)             
+
+
+[1] http://download.intel.com/products/processor/manual/326019.pdf
+[2] http://zhangjun2915.blog.163.com/blog/static/3808623620105801556417/
+[3] http://zhangjun2915.blog.163.com/blog/static/3808623620105683158449/

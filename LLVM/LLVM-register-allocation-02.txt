@@ -1,0 +1,150 @@
+                Copyright (c) 2011 陳韋任 (Chen Wei-Ren)
+
+我們開始介紹 LLVM linear scan register allocator。以下提到的 linear scan 專指
+LLVM linear scan register allocator，主要參考 [1] 和 [3][4] 第 16 頁。 
+
+
+在進到 Allocator 之前，必須要先經過幾個流程。
+
+  PHI Elimination -> Two-Address -> Liveness -> Coalescing
+    -> Allocator (Spiller) -> Rewriter
+                                                                   
+LLVM IR 屬於 SSA (Static Single Assignment) 的形式。簡單來說，一個賦值表示式會創
+建出一個新的變數。之所以採用 SSA 的形式是因為此種形式使得之後的優化更加好做。比
+如說底下這段代碼:
+
+   y := 1
+   y := 2
+   x := y
+
+將其轉為 SSA 形式之後會變成:
+
+   y_1 := 1
+   y_2 := 2
+   x_1 := y_2
+
+這樣一來，編譯器很容易看出 "y_1 := 1" 這條賦值語句是多餘的。
+
+
+llvm-2.9/lib/CodeGen/*
+
+
+            Linear Scan
+             Allocator  <---->  Spiller
+
+
+Linear scan 算法維護一個稱之為 active list 的資料結構，其內存放在當前 function
+所在目前的這一點，所有屬於 live 的 live range。Linear scan 透過 active list 偵測
+有無 interference 的發生，不需要計算整個 interference graph。這對 linear scan
+的速度是一個關鍵，因為它不需要計算整個 interference graph，但這同時也是它的阿基
+里斯之踵。live interval 和 live range 混用。
+
+
+  1. 尋訪 live ranges in a linear order。
+  2. 
+
+我們這裡提及的 machine instruction/code 指的是 LLVM MachineInstr (MI)，不要和
+LLVM Machine Code (MC) 搞混。MC 負責操作 MI 進行目的檔的輸出。這裡先給一個 LLVM
+後端粗略的概圖:
+
+  LLVM IR -> DAG -> MI -> MC
+
+Linear scan 算法簡單，它很容易透過一些修改進而得到效能增進。Linear scan 依賴後
+續的 virtual register rewriter 替它清理做完 register allocation 的 machine code。
+原則上，rewriter 的工作應只限於將 virtual register 替換成 physical register，跟
+據之前 register allocator 所得結果。但是在這個階段，rewriter 知道一些小把戲 (trick)
+來清理 register allocator 做的一些蠢事。比如說，register allocator 可能會從堆疊上
+重複讀取一個變數，但是該變數其值並未改變。這時，rewriter 可以消除第二個以後的
+load 指令。在 LLVM 中，這個 rewriter 是 local 的，這意味著它只能清理基本塊之內
+的 machine code，它無法做跨基本塊的清理。Linear scan allocator 如此依賴 rewriter
+會產生一個問題，rewriter 變得臃腫，這會拉長編譯時做 register allocation (也計入
+rewriter) 所花時間，同時 rewriter 代碼難以維護。
+
+
+  Linear scan 的複雜度不再是 linear。
+
+---  RALinScan::runOnMachineFunction ---
+  spiller_.reset(createSpiller(*this, *mf_, *vrm_));
+
+  initIntervalSets();
+
+  linearScan();
+
+  // Rewrite spill code and update the PhysRegsUsed set.
+  rewriter_->runOnMachineFunction(*mf_, *vrm_, li_);
+---
+
+--- RALinScan::linearScan ---
+  while (!unhandled_.empty()) {
+    // pick the interval with the earliest start point
+    LiveInterval* cur = unhandled_.top();
+    unhandled_.pop();
+    ++NumIters;
+
+    processActiveIntervals(cur->beginIndex());
+    processInactiveIntervals(cur->beginIndex());
+
+    // Allocating a virtual register. try to find a free
+    // physical register or spill an interval (possibly this one) in order to
+    // assign it one.
+    assignRegOrStackSlotAtInterval(cur);
+  }
+---
+
+--- RALinScan::assignRegOrStackSlotAtInterval ---
+  // If the current has the minimum weight, we need to spill it and
+  // add any added intervals back to unhandled, and restart
+  // linearscan.
+---
+
+"When all physical registers are blocked by interfering live ranges in the
+active list, a live range is selected for spilling. Live ranges being spilled
+without being split first cause the mess that the rewriter is working so hard to
+clean up."
+
+
+  使 live range splitting 更加靈活。
+
+"A new register allocation algorithm needs to preserve this simplicity. It must
+be possible to change the machine code while the algorithm is running."
+
+"A new register allocator should avoid making obvious mistakes so the rewriter
+can concentrate on rewriting registers." 
+
+basic & greedy。
+
+新增 priority queue 和 live interval unions 兩個資料結構
+
+我們這裡提及的 machine instruction 指的是 LLVM MachineInstr (MI)，不要和 machine
+code (LLVM Machine Code，又稱 MC) 搞混。MC 負責操作 MI 進行目的檔的輸出。
+
+
+底下是目前 LLVM 後端 codegen 的流程。
+
+  0. LLVM IR to DAG 
+  1. DAG to MI lowering (and pre-RA schedule)
+  2. MI optimizations (LICM, CSE, etc.)
+  3. Register allocation super pass
+     3a. De-ssa (2-address, phi slim)
+     3b. Coalescing
+     3c. Actual register allocation
+  4. Post-RA optimizations
+  5. PEI
+  6. Post-RA scheduling
+
+blog 文章重點放在 "3c. Actual register allocation" 這個階段。
+
+
+
+[1] http://blog.llvm.org/2011/09/greedy-register-allocation-in-llvm-30.html
+[2] http://www.stanford.edu/class/cs143/lectures/170_Register_Allocation.pdf
+[3] http://www.llvm.org/devmtg/2008-08/Cheng_RegisterAllocation.pdf
+[4] http://llvm.org/devmtg/2009-10/RegisterAllocationFutureWorks.pdf
+[5] http://en.wikipedia.org/wiki/Static_single_assignment_form
+
+[] http://llvm.org/devmtg/2011-11/Olesen_RegisterAllocation.pdf
+[] http://llvm.org/devmtg/2011-11/Grosbach_Anderson_LLVMMC.pdf
+
+[1] http://llvm.org/docs/CodeGenerator.html#machineinstr
+
+[] http://lists.cs.uiuc.edu/pipermail/llvmdev/2011-December/046073.html

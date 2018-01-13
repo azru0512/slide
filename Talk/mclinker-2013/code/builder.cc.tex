@@ -1,0 +1,25 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{c+c1}{// Create LLVMContext for latter use.}
+\PY{n}{LLVMContext} \PY{n}{Context}\PY{p}{;}
+
+\PY{c+c1}{// Create some module to put our function into it.}
+\PY{n}{Module} \PY{o}{*}\PY{n}{M} \PY{o}{=} \PY{k}{new} \PY{n}{Module}\PY{p}{(}\PY{l+s}{\PYZdq{}}\PY{l+s}{test}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{n}{Context}\PY{p}{)}\PY{p}{;}
+
+\PY{c+c1}{// Create function inside the module}
+\PY{n}{Function} \PY{o}{*}\PY{n}{Add1F} \PY{o}{=}
+  \PY{n}{cast}\PY{o}{\PYZlt{}}\PY{n}{Function}\PY{o}{\PYZgt{}}\PY{p}{(}\PY{n}{M}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{getOrInsertFunction}\PY{p}{(}\PY{l+s}{\PYZdq{}}\PY{l+s}{add1}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{n}{Type}\PY{o}{:}\PY{o}{:}\PY{n}{getInt32Ty}\PY{p}{(}\PY{n}{Context}\PY{p}{)}\PY{p}{,}
+                                        \PY{n}{Type}\PY{o}{:}\PY{o}{:}\PY{n}{getInt32Ty}\PY{p}{(}\PY{n}{Context}\PY{p}{)}\PY{p}{,}
+                                        \PY{p}{(}\PY{n}{Type} \PY{o}{*}\PY{p}{)}\PY{l+m+mi}{0}\PY{p}{)}\PY{p}{)}\PY{p}{;}
+
+\PY{c+c1}{// Add a basic block to the function.}
+\PY{n}{BasicBlock} \PY{o}{*}\PY{n}{BB} \PY{o}{=} \PY{n}{BasicBlock}\PY{o}{:}\PY{o}{:}\PY{n}{Create}\PY{p}{(}\PY{n}{Context}\PY{p}{,} \PY{l+s}{\PYZdq{}}\PY{l+s}{EntryBlock}\PY{l+s}{\PYZdq{}}\PY{p}{,} \PY{n}{Add1F}\PY{p}{)}\PY{p}{;}
+
+\PY{c+c1}{// Create a basic block builder. The builder will append instructions}
+\PY{c+c1}{// to the basic block \PYZsq{}BB\PYZsq{}.}
+\PY{n}{IRBuilder}\PY{o}{\PYZlt{}}\PY{o}{\PYZgt{}} \PY{n}{builder}\PY{p}{(}\PY{n}{BB}\PY{p}{)}\PY{p}{;}
+
+\PY{c+c1}{// ... prepare operands for Add instrcution. ...}
+
+\PY{c+c1}{// Create the add instruction, inserting it into the end of BB.}
+\PY{n}{Value} \PY{o}{*}\PY{n}{Add} \PY{o}{=} \PY{n}{builder}\PY{p}{.}\PY{n}{CreateAdd}\PY{p}{(}\PY{n}{One}\PY{p}{,} \PY{n}{ArgX}\PY{p}{)}\PY{p}{;}
+\end{Verbatim}

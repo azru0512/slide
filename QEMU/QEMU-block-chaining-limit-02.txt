@@ -1,0 +1,160 @@
+
+
+  為何底下情況 QEMU 能正確處理?
+
+         ____________
+        |            |
+        |            |   guest page 1 (4MB)
+        |            |       
+  tb.a  |   10 nop   |   
+ -------------------------------------
+  tb.b  |   10 nop   |
+        |    1 ret   |   guest page 2 (4MB)
+        |            |    (unmapped)
+        |____________|
+
+ 
+                                       clear env->tb_jmp_cache            
+  invlpg --> tlb_flush_page/tlb_flush -------------------------> tb_find_fast
+                
+                 (1)                                         
+                -----> tb_find_slow ---> get_page_addr_code (ldub_code -> __ldb_cmmu -> tlb_fill)
+                
+                 (2)
+                -----> guest page fault handler
+
+  (1) tb_find_fast failed since tb_jmp_cache is clear. 
+  
+  (2) tlb_table changed, raise guest exception
+
+
+  The whole point is the control needed to be gave back to QEMU,
+so that it has chance to call tb_find_fast/tb_find_slow, then in
+tb_find_slow it will raise guest exception to handle the problem.
+If we direct link to a TB spanning guest pages, QEMU has no chance
+to call tb_find_fast/tb_find_slow.
+
+
+$ git clone git://jcmvbkbc.spb.ru/dumb/qemu-test-kernel.git
+$ cd qemu-test-kernel
+$ ./autogen.sh
+$ ./configure
+$ make
+$ qemu-system-x86_64 -kernel docs/kernel -D qemu.log -d in_asm,cpu,exec,int
+
+  - doc/kernel.c
+
+uint32_t page_directory[1024] __attribute__((aligned(4096))); // 4MB 頁目錄表
+uint32_t page_table[1024] __attribute__((aligned(4096)));     // 4MB 頁表
+
+static void start_paging(void)
+{
+    unsigned i;
+    // 填充頁表項
+    for (i = 0; i < ARRAY_SIZE(page_table); ++i)
+        page_table[i] = (i << 12) | 3;
+
+    // 將頁目錄表首項指向頁表
+    page_directory[0] = ((uint32_t)page_table) | 3;
+
+    // 將 cr3 指向頁目錄表，開啟分頁功能
+    asm __volatile__ (
+            "movl %0, %%cr3\n"
+            "movl %%cr0, %0\n"
+            "orl  $0x80000000, %0\n"
+            "movl %0, %%cr0\n"
+            : : "r"(page_directory) : "memory");
+}
+
+void
+cmain (unsigned long magic, unsigned long addr)
+{
+  multiboot_info_t *mbi;
+
+  start_paging();   // 開啟分頁
+  make_test_code(); // 填充 code cache
+  test_code();      // 跳至 code cache 執行
+
+  ...
+
+}
+
+  - make_test_code
+
+uint8_t code_buf[8192] __attribute__((aligned(4096))); // 8MB，兩頁的 code cache
+
+static void make_test_code(void)
+{
+    unsigned i;
+    for (i = 0; i < 20; ++i)
+        code_buf[4096 - 10 + i] = 0x90; 
+    code_buf[4096 + 10] = 0xc3;
+
+}
+
+  code_buf --->  ____________
+                |            |
+                |            |   guest page 1 (4MB)
+                |            |
+         f ---> |   10 nop   |   tb.a
+                ------------------------------------
+  code_pfn ---> |   10 nop   |   tb.b
+                |    1 ret   |   
+                |            |   guest page 2 (4MB)    
+                |____________|
+        
+
+  - test_code
+
+static void test_code(void)
+{
+    void (*f)(void) = (void*)(code_buf + 4096 - 10);
+    uint32_t code_pfn = (uint32_t)(code_buf + 4096) >> 12;
+    f(); // 順利執行 ret
+
+    page_table[code_pfn] = 0; // 將 guest page 2 invalid
+
+    asm __volatile__ (
+            "invlpg (%0)\n"
+            : : "r"(code_buf + 4096) :"memory"); // QEMU flush_tlb
+
+    // tb_find_fast -> tb_find_slow -> get_page_addr_code -> raise guest page fault
+    f();
+}
+
+  上述範例展示 QEMU 為何能正確處理跨 guest page 的 TranslationBlock。下面的範例
+展示當我們移除前文第二條限制時，QEMU 會死機。
+
+  -
+static void make_test_code(void)
+{
+    unsigned i;
+    code_buf[4096 - 20] = 0xeb;
+    code_buf[4096 - 19] = 8;
+    for (i = 0; i < 20; ++i)
+        code_buf[4096 - 10 + i] = 0x90;
+    code_buf[4096 + 10] = 0xc3;
+
+}
+
+  -
+static void test_code(void)
+{
+    void (*f)(void) = (void*)(code_buf + 4096 - 20);
+
+    ...
+
+}
+
+  code_buf --->  ____________
+                |            |
+                |            |   guest page 1 (4MB)
+         f ---> |   jmp 8    |
+                |   10 nop   |   tb.a
+                ------------------------------------
+  code_pfn ---> |   10 nop   |   tb.b
+                |    1 ret   |
+                |            |   guest page 2 (4MB)
+                |____________|
+
+  - 
